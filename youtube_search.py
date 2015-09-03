@@ -133,65 +133,50 @@ def get_stats(vid_id):
   return viewcount, date
 
 
-# Same as main() excepts potst the output to Twitter using twython module. See
-# https://twython.readthedocs.org/en/latest/usage/basic_usage.html
-# Always uses a random search term.
-def yt_search_bot():
-  # get keys from keys.json. Note that KEYS is a global dictionary object.
-  API_KEY = KEYS["API_KEY"]
-  API_SECRET = KEYS["API_SECRET"]
-  OAUTH_TOKEN = KEYS["OAUTH_TOKEN"]
-  OAUTH_SECRET = KEYS["OAUTH_SECRET"]
-  
-  t = twython.Twython(API_KEY, API_SECRET, OAUTH_TOKEN, OAUTH_SECRET)
-
  
-  search_term = get_search_term()
-  print "Search term:", search_term
-
-  week = random.randint(0, 2*52)
-  token, title, vid_id = get_pages(search_term, week)
-  
-  while token != None:
-    token, title, vid_id = get_pages(search_term, week, token)
-
-  viewcount, date = get_stats(vid_id)
-
-  url = "https://www.youtube.com/watch?v="+vid_id  
-  print title
-  print url
-  print "uploaded: "+date+", "+"views:"+viewcount
-
-  msg = title + "\n" + url + "\n" + "uploaded: " + date + "\n" + "views: " + viewcount
-  t.update_status(status=msg)  
 
 
 #*******
 # Main *
 #*******
 
-# Performs the search and prints the result to console window.
 def main(args):
-  # if no search term was specified, use one at random
   search_term = args.q
+  # if no search term was specified, use one at random
   if search_term == None:
     search_term = get_search_term()
     print "Search term:", search_term
 
   # randomize a week to determine the timeframe for the search
   week = random.randint(0, 2*52)
+
+  # get the first page of the result set
   token, title, vid_id = get_pages(search_term, week)
   
-  # continue the search if there are more than one page
+  viewcount, date = get_stats(vid_id)
+  url = "https://www.youtube.com/watch?v="+vid_id  
+
+  # continue the search until no more pages
   while token != None:
     token, title, vid_id = get_pages(search_term, week, token)
 
-  viewcount, date = get_stats(vid_id)
+
+  # tweet the result
+  if args.bot:
+    API_KEY = KEYS["API_KEY"]
+    API_SECRET = KEYS["API_SECRET"]
+    OAUTH_TOKEN = KEYS["OAUTH_TOKEN"]
+    OAUTH_SECRET = KEYS["OAUTH_SECRET"]
+
+    t = twython.Twython(API_KEY, API_SECRET, OAUTH_TOKEN, OAUTH_SECRET)
+    msg = title + "\n" + url + "\n" + "uploaded: " + date + "\n" + "views: " + viewcount
+    t.update_status(status=msg)  
+
 
   print title
-  print "https://www.youtube.com/watch?v="+vid_id
+  print url
   print "uploaded:", date
-  print "view count:", viewcount
+  print "viewcount:", viewcount
 
 
 
@@ -202,9 +187,6 @@ if __name__ == "__main__":
   args = argparser.parse_args()
 
   try:
-    if args.bot:
-      yt_search_bot()
-    else:
-      main(args)
+    main(args)
   except HttpError, e:
     print "An HTTP error %d occurred:\n%s" % (e.resp.status, e.content)
