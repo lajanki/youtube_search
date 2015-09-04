@@ -1,5 +1,5 @@
 # youtube_search
-A script that attempts to find old YouTube videos with little or no vews.
+A Python script that attempts to find old YouTube videos with little or no vews.
 
 The Google YouTube Data API comes with certain restrictions that prevents from directly searching for content with no views. Namely:
   1. one cannot use view count as a search parameter, and                             
@@ -10,6 +10,7 @@ Additioanlly a radom week long timeframe from one year ago to three years ago is
 
 This script does not make any guarantees about the outcome: the results may have zero or several views or, with a bad search term, no results at all.
 
+---
 ## Requirements
 ##### Modules
 * Google APIs Client Library:
@@ -22,10 +23,11 @@ https://twython.readthedocs.org/en/latest/
 https://developers.google.com/api-client-library/python/guide/aaa_apikeys
    * Store this key in the keys.json file.
    * **This key is required!** Running this script without it will result in an HTTP error with a message of "Daily Limit for Unauthenticated Use Exceeded".
- * Additionally the Twitter bot-feature requires access tokens and keys from Twitter
+ * Additionally the Twitterbot feature requires access tokens and keys from Twitter
  https://dev.twitter.com/oauth/overview/application-owner-access-tokens
 
+---
 ## Usage
-
+When run without command line arguments the script will choose a random search term, perform the search and output the one with the least views on screen.
 
 Lauri Ajanki 31.8.2015
