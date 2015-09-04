@@ -1,5 +1,5 @@
 #!/bin/bash
-# A launcher script to run quote.py. Attempts to run it again if the
+# A launcher script to run youtube_search.py. Attempts to run it again if the
 # first try is unsuccessful.
 
 python ./youtube_search.py --bot
