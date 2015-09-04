@@ -1,21 +1,12 @@
 #!/bin/bash
+# A launcher script to run youtube_search.py. Attempts to run it again if the
+# first try is unsuccessful.
 
-# A launcher script to run the Twitterbot upto 3 times, if the first 2 don't yield
-# a successful result.
-# Usage:  ./yt_bot.sh
+python ./youtube_search.py --bot
 
-function bot() {
-  iter=$1
+ret=$?
+if [ $ret -ne 0 ]; then
+  echo "Not a valid quote, trying again..."
   python ./youtube_search.py --bot
-  ret=$?
-  if [ $iter -lt 4 ] && [ $ret -ne 0 ]; then
-    echo "No results, trying again..."
-    let iter=$iter+1
-    bot $iter
-  fi
-}
-
-
-bot 1
+fi
 echo $(date +"%d.%m.%Y-%H:%M")
-
