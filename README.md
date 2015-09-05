@@ -50,6 +50,6 @@ bot.sh
   * A Linux shell script to launch the main script with the --bot switch. Runs it again if the first try is unsuccessful.
 
 
-Written on Python 2.7.8
 
+Written on Python 2.7.8  
 Lauri Ajanki 31.8.2015
