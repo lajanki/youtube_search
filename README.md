@@ -46,7 +46,7 @@ dict.txt
 keys.json
   * An empty JSON file to store your Google API key as well as Twitter access tokens and API keys. The main script will attempt to read them from here.
 
-launcher.sh
+bot.sh
   * A Linux shell script to launch the main script with the --bot switch. Runs it again if the first try is unsuccessful.
 
 
