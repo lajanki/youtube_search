@@ -8,7 +8,8 @@ Instead this script uses a random search term, orders the results by view count 
 
 Additioanlly a radom week long timeframe from one year ago to three years ago is specified as search parameter to narrow the results. 
 
-This script does not make any guarantees about the outcome: the results may have zero or several views or, with a bad search term, no results at all.
+This script does not make any guarantees about the outcome: you may not get any result at all or the result may already have several views. There are also no guarantees about the same result showing up later, though there are more than 71 000 search terms and 104 weeks to choose from.
+
 
 ---
 ## Requirements
