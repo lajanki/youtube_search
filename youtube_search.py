@@ -1,47 +1,37 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-##########################################################################################
-# youtube_search.py                                                                      #
-# Attempts to find YouTube videos with little or no views using random or                #
-# specified search terms.                                                                #
-#																						 #
-# The Google YouTube Data API comes with certain restrictions that prevents from         #
-# directly searching for content with no views. Namely:                                  #
-#  1) one cannot use view count as a search parameter, and                               #
-#  2) any search query will return at most 500 results.                                  #
-# Instead this script uses a random search term, orders the results by view count and    #
-# chooses the last result.                                                               #
-#                                                                                        #
-# Additioanlly a radom week long timeframe from one year ago to three years ago is       #
-# specified as search parameter to narrow the results.                                   #
-#                                                                                        #
-# This script does not make any guarantees about the outcome: the results may have       #
-# zero or several views or, with a bad search term, no results at all.                   #
-#                                                                                        #
-# Requires:                                                                              #
-#  Modules                                                                               #
-#  * Google APIs Client Library:                                                         #
-#      https://developers.google.com/api-client-library/python/start/installation        #
-#  * Twython:                                                                            #
-#      https://twython.readthedocs.org/en/latest/                                        #
-#  Keys:                                                                                 #
-#  * Google API Key:                                                                     #
-#      https://developers.google.com/api-client-library/python/guide/aaa_apikeys         #
-#  * Additionally the Twitter bot-feature requires access tokens and keys from Twitter   #
-#      https://dev.twitter.com/oauth/overview/application-owner-access-tokens            #
-#                                                                                        #
-# Lauri Ajanki 31.8.2015                                                                 #
-##########################################################################################
+#############################################################################
+# youtube_search.py
+#
+# Searches for YouTube videos with no or little (<10) views.
+#
+# The Google YouTube Data API comes with certain restrictions that prevents
+# from directly searching for content with no views. Namely:
+# 1)  one cannot use view count as a search parameter, and
+# 2)  any search query will return at most 500 results.
+#
+# This script uses a brute force type approach by performing the search to a
+# bunch of search terms and saves the results with <10 views to a file.
+#
+# The search terms are read from a dictionary file consisting of > 71 000 words.
+# These words are read in groups of 50. Each time this script is executed
+# either the top most result from the buffer file is chosen for output,
+# or the next 50 words are processed.
+#
+# Lauri Ajanki 11.9.2015
+##################################################################
  
 from apiclient.discovery import build
 from apiclient.errors import HttpError
 from oauth2client.tools import argparser
-import datetime, time, sys, json, random, twython
+import time, sys, json, random, twython, os.path
 
+# Change the default encoding in case the video title contains non-ASCII characters.
+reload(sys)  
+sys.setdefaultencoding("utf-8")
 
-# Get YouTube and Twitter authentication keys from external JSON file.
-# NOTE: THIS FILE IS EMPTY, you need to fill it with your own keys!
+# Get required Twitter and Google keys from file.
 with open("./keys.json") as f:
   KEYS = json.load(f)
 
@@ -53,42 +43,29 @@ DEVELOPER_KEY = KEYS["GOOGLE_DEVELOPER_KEY"]
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 
-# Create a global service object to interact with the YouTube API.
-youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=DEVELOPER_KEY)
 
 
-# Get a random search term from the specified text file.
-def get_search_term():
+def random_search_term():
+  # Get a random search term from file.
   with open("./dict.txt") as f:
     lines = [line.rstrip("\n") for line in f]
     rand = random.choice(lines)
     return rand
 
 
-# Perform the YouTube search using a randomized search term and a week long timeframe.
-# Return:
-#   page_token: a pagination token used to continue the same search for more results,
-#   title: the title to the last video of the result set,
-#   vid_id: an id to the last video of the result set. The URL to a YouTube videos are
-#           of the form https://www.youtube.com/watch?v=<vid_id> 
-def get_pages(search_term, weeks, page_token = None):
-  # Get todays date and subtract (1 year + random amount of weeks) to get publishedBefore
-  # publishedAfter parameters.
-  year = int(time.strftime("%Y"))
-  month = int(time.strftime("%m"))
-  day = int(time.strftime("%d"))
 
-  # Convert to RFC 3339 format.
-  d = datetime.datetime(year, month, day)
-  d_i = d + datetime.timedelta(days=-1*365 - 7*weeks)
-  d_f = d + datetime.timedelta(days=-1*365 - 7*(weeks-1))
-
-  d_i = d_i.isoformat() + "Z"
-  d_f = d_f.isoformat() + "Z"
+def youtube_query(search_term, page_token = None):
+  # Perform a YouTube query.
+  # Args:
+  #   search_term: string, the search term,
+  #   page_token: string, a token used to access the next page of the result set.
+  # Return:
+  #   a dictionary object representing the next page token of the result set and a video title and id of
+  #   the least viewed item of current page.
+  youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=DEVELOPER_KEY)
 
   # Call the search.list method to retrieve results matching the specified
-  # query term.
-  # See the API for help:
+  # query term. See the API at
   # https://developers.google.com/resources/api-libraries/documentation/youtube/v3/python/latest/youtube_v3.search.html
   search_response = youtube.search().list(
     q=search_term,
@@ -96,32 +73,32 @@ def get_pages(search_term, weeks, page_token = None):
     relevanceLanguage="en",
     maxResults=50,
     order="viewCount",
-    publishedBefore=d_f,
-    publishedAfter=d_i,
     pageToken = page_token,
     type = "video" 
   ).execute()
 
-  # Check if there are more results to fetch later.
+  # See if the response contains more pages.
   if "nextPageToken" in search_response.keys():
     page_token = search_response["nextPageToken"]
   else:
     page_token = None
 
-  # Get the last result of the result set.
-  # Exit if no results.
+  # Get the last item (least views) from the current page of result set.
   try:
     title = search_response.get("items")[-1]["snippet"]["title"]
     vid_id = search_response.get("items")[-1]["id"]["videoId"]
   except IndexError:
-	print "No search results:", search_term
-	sys.exit(1)
+    print "No search results", search_term
+    return None
 
-  return page_token, title, vid_id
+  return { "page_token":page_token, "title":title, "vid_id":vid_id }
 
 
-# Get view count and upload date of the video given by id.
+
 def get_stats(vid_id):
+  # Get view count and upload date for the given video.
+  youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=DEVELOPER_KEY)
+  
   stats = youtube.videos().list(
     part="statistics,snippet",
     id=vid_id
@@ -129,62 +106,178 @@ def get_stats(vid_id):
 
   viewcount = stats.get("items")[0]["statistics"]["viewCount"]
   date = stats.get("items")[0]["snippet"]["publishedAt"]
-  date = date[:10]  # date is in RFC 3339 format; only get the first 10 characters eg. 2013-06-11 
+
+  # date is in ISO format (YYYY-MM-DD), reformat to DD.MM.YYYY 
+  d = date[8:10]
+  m = date[5:7]
+  y = date[0:4]
+  date = d+"."+m+"."+y
+
   return viewcount, date
+
+
+
+def zero_search(search_term):
+  # Perform the actual search: call youtube_query until no more pages left
+  # and get the last result.
+  # Args:
+  #   search_term: string, the search term.
+  # Return:
+  #   a dictionary object representing the title, url, view count and upload date
+  #   of the least viewed item.
+  print "Search term:", search_term
+
+  res = youtube_query(search_term)
+  token = res["page_token"]
+  title = res["title"]
+  vid_id = res["vid_id"]
+
+  while token != None:
+    res = youtube_query(search_term, token)
+    token = res["page_token"]
+    title = res["title"]
+    vid_id = res["vid_id"]
+
+  viewcount, date = get_stats(vid_id)
+  url = "https://www.youtube.com/watch?v="+vid_id
+
+  return { "title":title, "url":url, "viewcount":viewcount, "date":date }
+
+
+
+def next_slice():
+  # Get the next 50 search terms from file.
+  # Return:
+  #   a list of the search terms and a byte index used to
+  #   tell where the next slice should be read from.
+  slice = []
+
+  try:
+    # Read the byte index from the end of the file.
+    with open("./links.dat") as links:
+      lines = [line.rstrip("\n") for line in links]
+      start = int(lines.pop())
+  except IOError:
+    start = 0
+
+  # Seek to the position marked by start and read 50 lines.
+  with open("./dict.txt") as f:
+    f.seek(start)
+    for i in range(50):
+      slice.append(f.readline().rstrip("\n"))
+    pos = f.tell()
+
+  return slice, pos
+
+
+
+def store_links():
+  # Parse the search terms returned by next_slice for videos with
+  # less than 10 views. Store the links to links.dat file.
+  slice, pos = next_slice()
+
+  with open("./links.dat", "w+") as f:  # w+ overwrites previous links
+    for search_term in slice:
+      try:  # res != None
+        res = zero_search(search_term)
+        title = res["title"]
+        url = res["url"]
+        viewcount = res["viewcount"]
+        date = res["date"]
+
+        if int(viewcount) < 10:
+          print title
+          print url
+          print viewcount
+          print date
+          data = title+","+url+","+viewcount+","+date+"\n"
+          f.write(data)
+
+      except TypeError as e:
+        print e
+        print "No search result:", search_term
+
+
+    # Write the byteindex to mark the beginning of the next 50 words
+    # to the end of the file.
+    f.write(str(pos))
+
+  print "Done"
+
+
+
+def bot():
+  # Read the topmost link from links.dat and post it to Twitter.
+
+  # First time calling this script and links.dat does not exist => create it.
+  if not os.path.isfile("./links.dat"):
+    print "The file links.dat does not exist. Generating...\n\
+Please wait, this may take a while."
+    store_links()
+
+  with open("./links.dat") as f:
+    lines = [line.rstrip("\n") for line in f]
+
+    # Previous call to store_links did not result in valid links (links.dat contains only
+    # the byte index), call it again and exit.
+    if len(lines) <= 1:
+      print "Error: no links in links.dat, generating new ones..."
+      store_links()
+      print "Try running this script again."
+      sys.exit()
+
+  # Pick the topmost link, parse it to a list of [title, url, viewcount, date].
+  link = lines[0].split(",")
+  rest = lines[1:]
+
+  # Tweet
+  msg = link[0] + "\n" + link[1] + "\n" + "uploaded: " + link[3] + "\n" + "views: " + link[2]
+  API_KEY = KEYS["API_KEY"]
+  API_SECRET = KEYS["API_SECRET"]
+  OAUTH_TOKEN = KEYS["OAUTH_TOKEN"]
+  OAUTH_SECRET = KEYS["OAUTH_SECRET"]
+
+  t = twython.Twython(API_KEY, API_SECRET, OAUTH_TOKEN, OAUTH_SECRET)
+  t.update_status(status=msg)
+  
+  print msg
+  print time.strftime("%d.%m.%Y-%H:%M:%S")
+
+  # Write the rest back to file or generate new links if the one picked was the last one.
+  if len(rest) > 1:
+    with open("./links.dat", "w+") as f:  # overwrites previous data
+      for item in rest:
+        f.write(item+"\n")
+
+  else:
+    print "No links left, generating new ones..."
+    store_links()
 
 
  
 
 
-#*******
-# Main *
-#*******
 
 def main(args):
-  search_term = args.q
-  # if no search term was specified, use one at random
-  if search_term == None:
-    search_term = get_search_term()
-    print "Search term:", search_term
-
-  # randomize a week to determine the timeframe for the search
-  week = random.randint(0, 2*52)
-
-  # get the first page of the result set
-  token, title, vid_id = get_pages(search_term, week)
-  
-  viewcount, date = get_stats(vid_id)
-  url = "https://www.youtube.com/watch?v="+vid_id  
-
-  # continue the search until no more pages
-  while token != None:
-    token, title, vid_id = get_pages(search_term, week, token)
-
-
-  # tweet the result
   if args.bot:
-    API_KEY = KEYS["API_KEY"]
-    API_SECRET = KEYS["API_SECRET"]
-    OAUTH_TOKEN = KEYS["OAUTH_TOKEN"]
-    OAUTH_SECRET = KEYS["OAUTH_SECRET"]
-
-    t = twython.Twython(API_KEY, API_SECRET, OAUTH_TOKEN, OAUTH_SECRET)
-    msg = title + "\n" + url + "\n" + "uploaded: " + date + "\n" + "views: " + viewcount
-    t.update_status(status=msg)  
+    bot()
+  elif args.q:  
+    print zero_search(args.q)
+  else:
+    print "This script will search for YouTube videos with little or no views. It is intended to be run with the --bot switch which will take the next buffered search result and post it to Twitter.\n\
+Alternatively you can perform a sample search with a random search term with the -q switch or specify a search term with -q <search term>. The result is shown as a dictionary object."
 
 
-  print title
-  print url
-  print "uploaded:", date
-  print "viewcount:", viewcount
+
 
 
 
 
 if __name__ == "__main__":
-  argparser.add_argument("--q", help="Search term", default=None)
-  argparser.add_argument("--bot", help="Use bot", action="store_true")
+  argparser.add_argument("-q", help="Perform a sample search", nargs="?", const=random_search_term())
+  argparser.add_argument("--bot", help="Tweet the next result from links.dat", action="store_true")
   args = argparser.parse_args()
+
 
   try:
     main(args)
