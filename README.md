@@ -55,4 +55,4 @@ Additionally running the script will create links.dat
 
 
 Written on Python 2.7.8  
-Lauri Ajanki 31.8.2015
+Lauri Ajanki 12.9.2015
