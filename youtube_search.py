@@ -19,13 +19,27 @@
 # either the top most result from the buffer file is chosen for output,
 # or the next 50 words are processed.
 #
+# Changelog:
+# 16.1.2016 - Code cleanup, added publishedBefore argument to youtube.search().list()
+# 12.9.2015 - Initial release
+#
 # Lauri Ajanki 11.9.2015
-##################################################################
+#############################################################################
  
+
+import time
+import sys
+import json
+import random
+import twython
+import os
+import argparse
+import datetime
+from oauth2client import tools
 from apiclient.discovery import build
 from apiclient.errors import HttpError
-from oauth2client.tools import argparser
-import time, sys, json, random, twython, os.path
+#from oauth2client.tools import argparser
+
 
 # Change the default encoding in case the video title contains non-ASCII characters.
 reload(sys)  
@@ -44,32 +58,31 @@ YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 
 
-
-def random_search_term():
-  # Get a random search term from file.
-  with open("./dict.txt") as f:
-    lines = [line.rstrip("\n") for line in f]
-    rand = random.choice(lines)
-    return rand
-
-
-
+#========================================================================================
+# Youtube query functions =
+#==========================
 def youtube_query(search_term, page_token = None):
   # Perform a YouTube query.
   # Args:
-  #   search_term: string, the search term,
-  #   page_token: string, a token used to access the next page of the result set.
+  #   search_term (string): the search term,
+  #   page_token (string): a token used to access the next page of the result set.
   # Return:
   #   a dictionary object representing the next page token of the result set and a video title and id of
   #   the least viewed item of current page.
   youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=DEVELOPER_KEY)
 
+  # create a timestamp to be used as a publishedBefore argument
+  d = datetime.datetime.utcnow()
+  #d = d.isoformat("T") + "Z"
+  d_year_ago = d - datetime.timedelta(days=365)
+  d_year_ago = d_year_ago.isoformat("T") + "Z"
   # Call the search.list method to retrieve results matching the specified
   # query term. See the API at
   # https://developers.google.com/resources/api-libraries/documentation/youtube/v3/python/latest/youtube_v3.search.html
   search_response = youtube.search().list(
     q=search_term,
     part="id,snippet",
+	publishedBefore=d_year_ago,
     relevanceLanguage="en",
     maxResults=50,
     order="viewCount",
@@ -92,29 +105,6 @@ def youtube_query(search_term, page_token = None):
     return None
 
   return { "page_token":page_token, "title":title, "vid_id":vid_id }
-
-
-
-def get_stats(vid_id):
-  # Get view count and upload date for the given video.
-  youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=DEVELOPER_KEY)
-  
-  stats = youtube.videos().list(
-    part="statistics,snippet",
-    id=vid_id
-  ).execute()
-
-  viewcount = stats.get("items")[0]["statistics"]["viewCount"]
-  date = stats.get("items")[0]["snippet"]["publishedAt"]
-
-  # date is in ISO format (YYYY-MM-DD), reformat to DD.MM.YYYY 
-  d = date[8:10]
-  m = date[5:7]
-  y = date[0:4]
-  date = d+"."+m+"."+y
-
-  return viewcount, date
-
 
 
 def zero_search(search_term):
@@ -144,31 +134,40 @@ def zero_search(search_term):
   return { "title":title, "url":url, "viewcount":viewcount, "date":date }
 
 
+def get_stats(vid_id):
+  # Get view count and upload date for the given video.
+  # Arg:
+  #  vid_id (string): a Youtube video id
+  youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=DEVELOPER_KEY)
+  
+  stats = youtube.videos().list(
+    part="statistics,snippet",
+    id=vid_id
+  ).execute()
 
-def next_slice():
-  # Get the next 50 search terms from file.
+  viewcount = stats.get("items")[0]["statistics"]["viewCount"]
+  date = stats.get("items")[0]["snippet"]["publishedAt"]
+
+  # date is in ISO format (YYYY-MM-DD), reformat to DD.MM.YYYY 
+  d = date[8:10]
+  m = date[5:7]
+  y = date[0:4]
+  date = d+"."+m+"."+y
+
+  return viewcount, date
+
+
+#========================================================================================
+# I/O functions =
+#================
+def random_search_term():
+  # Get a random search term from file.
   # Return:
-  #   a list of the search terms and a byte index used to
-  #   tell where the next slice should be read from.
-  slice = []
-
-  try:
-    # Read the byte index from the end of the file.
-    with open("./links.dat") as links:
-      lines = [line.rstrip("\n") for line in links]
-      start = int(lines.pop())
-  except IOError:
-    start = 0
-
-  # Seek to the position marked by start and read 50 lines.
+  #  the search term
   with open("./dict.txt") as f:
-    f.seek(start)
-    for i in range(50):
-      slice.append(f.readline().rstrip("\n"))
-    pos = f.tell()
-
-  return slice, pos
-
+    lines = [line.rstrip("\n") for line in f]
+    rand = random.choice(lines)
+  return rand
 
 
 def store_links():
@@ -176,7 +175,7 @@ def store_links():
   # less than 10 views. Store the links to links.dat file.
   slice, pos = next_slice()
 
-  with open("./links.dat", "w+") as f:  # w+ overwrites previous links
+  with open("./links.dat", "w+") as f:  # overwrites previous links
     for search_term in slice:
       try:  # res != None
         res = zero_search(search_term)
@@ -205,7 +204,32 @@ def store_links():
   print "Done"
 
 
+def next_slice():
+  # Get the next 50 search terms from file.
+  # Return:
+  #   a list of the search terms and a byte index used to
+  #   tell where the next slice should be read from.
+  slice = []
 
+  try:
+    # Read the byte index from the end of the file.
+    with open("./links.dat") as links:
+      lines = [line.rstrip("\n") for line in links]
+      start = int(lines.pop())
+  except IOError:
+    start = 0
+
+  # Seek to the position marked by start and read 50 lines.
+  with open("./dict.txt") as f:
+    f.seek(start)
+    for i in range(50):
+      slice.append(f.readline().rstrip("\n"))
+    pos = f.tell()
+
+  return slice, pos
+
+
+#========================================================================================
 def bot():
   # Read the topmost link from links.dat and post it to Twitter.
 
@@ -254,32 +278,40 @@ Please wait, this may take a while."
     store_links()
 
 
- 
+#========================================================================================
+# Main =
+#=======
+def main():
+  parser = argparse.ArgumentParser(parents=[tools.argparser], description="Search for and tweet Youtube videos with no or little views.")
+  parser.add_argument("-q", help="Perform a sample search. Uses a random search term from dict.txt if not specified. Unlike the bot feature, this is for testing purposes and doesn't guarentee a seldom seen result.", nargs="?", const=random_search_term(), metavar="search term")
+  parser.add_argument("--bot", help="Tweet the next result from links.dat", action="store_true")
+  parser.add_argument("--init", help="Remove links.dat", action="store_true")
+  args = parser.parse_args()
 
-
-
-def main(args):
   if args.bot:
     bot()
-  elif args.q:  
-    print zero_search(args.q)
+  elif args.q:
+    res = zero_search(args.q)
+    print "Title:", res["title"]
+    print "URL:", res["url"]
+    print "View count", res["viewcount"]
+    print "Uploaded:", res["date"]
+  elif args.init:
+    os.remove("./links.dat")
+    print "links.dat removed, use the bot feature to generate a new one."
   else:
-    print "This script will search for YouTube videos with little or no views. It is intended to be run with the --bot switch which will take the next buffered search result and post it to Twitter.\n\
-Alternatively you can perform a sample search with a random search term with the -q switch or specify a search term with -q <search term>. The result is shown as a dictionary object."
-
-
-
-
-
+    parser.print_help()
 
 
 if __name__ == "__main__":
-  argparser.add_argument("-q", help="Perform a sample search", nargs="?", const=random_search_term())
-  argparser.add_argument("--bot", help="Tweet the next result from links.dat", action="store_true")
-  args = argparser.parse_args()
-
-
   try:
-    main(args)
+    main()
   except HttpError, e:
     print "An HTTP error %d occurred:\n%s" % (e.resp.status, e.content)
+
+
+
+
+
+
+
