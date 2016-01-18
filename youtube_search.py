@@ -256,6 +256,12 @@ Please wait, this may take a while."
 
   # Tweet
   msg = link[0] + "\n" + link[1] + "\n" + "uploaded: " + link[3] + "\n" + "views: " + link[2]
+  # If necessary, cut the title to shorten the tweet 
+  surplus = len(msg) - 140
+  if surplus > 0:
+    msg = link[0][:-surplus] + "\n" + link[1] + "\n" + "uploaded: " + link[3] + "\n" + "views: " + link[2]
+    print "Title cut to keep tweet within 140 characters."
+
   API_KEY = KEYS["API_KEY"]
   API_SECRET = KEYS["API_SECRET"]
   OAUTH_TOKEN = KEYS["OAUTH_TOKEN"]
