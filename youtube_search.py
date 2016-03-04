@@ -22,6 +22,17 @@
 # search terms are processed for new results.                                 #
 #                                                                             #
 # Changelog:                                                                  #
+# 3.4.2016                                                                    #
+#   * Querying: changed paginitaion in youtube_query() to use the API's       #
+#     list_next() method                                                      #
+#   * Parsing: zero_search() now parses more than one results per search term #
+#     (by default, all items in the last page of the results)                 #
+#   * Parsing: search results with liveContent == "upcoming" are now          #
+#     considered invalid (results to "upcoming" videos that have already      #
+#     occured and can no longer be viewed, maybe find out why this            #
+#     is happening?)                                                          #
+#   * Maintenance: added an --empty switch for emptying links.pkl             #
+#                                                                             #
 # 25.2.2016                                                                   #
 #   * I/O: output is now stored as pickle encoded dicts (links.pkl)           #
 #     instead of a raw csv text file.                                         #
@@ -67,7 +78,7 @@ youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=DEVE
 
 #==============================================================================
 # Initialization =
-#==================
+#=================
 def init(start=None):
   """Read contents of dict.txt and store it as a list in search_terms.pkl,
   which will be modified later.
@@ -99,95 +110,105 @@ def init(start=None):
 #========================================================================================
 # Youtube query functions =
 #==========================
-def youtube_query(search_term, page_token = None):
-  """Perform a YouTube query.
-  Args:
-    search_term (string): the search term,
-    page_token (string): a token used to access the next page of the result set.
+def youtube_query(search_term):
+  """Query YouTube on the given search term ordered by viewcount
+  and return the final page of results.
+  Arg:
+    search_term (string): the search term
   Return:
-    a dictionary object representing the next page token of the result set and a video title and id of
-    the least viewed item of the current page.
+    the final page of the results as a JSON encoded response object
   """
-  # create a timestamp to be used as a publishedBefore argument
+  # create a search request
   d = datetime.datetime.utcnow()
   year_ago = d - datetime.timedelta(days=365)
   year_ago = year_ago.isoformat("T") + "Z"
-  # Call the search.list method to retrieve results matching the specified
-  # query term. See the API at
-  # https://developers.google.com/resources/api-libraries/documentation/youtube/v3/python/latest/youtube_v3.search.html
-  search_response = youtube.search().list(
+
+  request = youtube.search().list(
     q=search_term,
     part="id,snippet",
-	  publishedBefore=year_ago,
+    publishedBefore=year_ago,
     relevanceLanguage="en",
     maxResults=50,
     order="viewCount",
-    pageToken = page_token,
-    type = "video" 
-  ).execute()
+    type = "video"
+  )
 
-  # get the next token, title and the id of the last item of the current page
-  page_token = search_response.get("nextPageToken")  # get() returns None if nextPageToken not in search_response
-  last_page = search_response.get("items")[-1]
+  # call list_next() until no more pages to fetch
+  while request is not None:
+    response = request.execute()
+    request = youtube.search().list_next(request, response)
 
-  title = last_page["snippet"].get("title")
-  vid_id = last_page["id"].get("videoId")
-
-  return { "page_token":page_token, "title":title, "vid_id":vid_id, "page":last_page }
+  return response
 
 
-def zero_search(n=20, view_treshold=0):
+def zero_search(n=35, last_only=False):
   """Read the n topmost search terms from search_terms.pkl
   and parse them for zero view videos. Store results to
   links.pkl.
-  Arg:
+  Args:
     n (int): the number of search terms to read
-    view_treshold (int): the maximum amount of views valid
-    results should have
+    last_only (boolean): whether only the last item (= least views) of the YouTube query
+      results should be processed
   Return:
     None
   """
   with open("search_terms.pkl", "rb") as index:
     search_terms = pickle.load(index)
 
-  valid = []
-  # get the first n search terms
+  valid = []  # a list for zero view items
+
+  # get the first n search terms from file
   next_slice = search_terms[:n]
   tail = search_terms[n+1:]
 
+  # call youtube_query2 to get the page containing
+  # the least viewed search results
   for search_term in next_slice:
-    # parse for zero view result:
-    # call youtube_query until last page of results
-    res = youtube_query(search_term)
-    token = res["page_token"]
-    while token != None:
-      res = youtube_query(search_term, page_token=token)
-      token = res["page_token"]
+    response = youtube_query(search_term)
 
-    # check viewcount of the item returned and, if applicable,
-    # add to valid
-    vid_id = res["vid_id"]
-    stats = get_stats(vid_id)
-    if int(stats["views"]) <= view_treshold:
-      title = res["title"]
-      link = "https://www.youtube.com/watch?v="+vid_id
-      view_count = stats["views"]
-      upload_date = stats["upload_date"]
+    # loop through items in the last page
+    #pprint.pprint(response["items"])
+    #print search_term
 
-      # add info as a tuple to valid
-      valid.append((title, link, view_count, upload_date))
+    items = response["items"]
+    if last_only:
+      items = items[-1:]  # list containing only the last item
+    print "no. items: ", len(items)
+    for item in reversed(items):
+      vid_id = item["id"]["videoId"]
+      stats = get_stats(vid_id)
+      views = int(stats["views"])
+      live = item["snippet"]["liveBroadcastContent"]
+      print views, "live content: ", live
 
-  # store valid to file
-  with open("links.pkl", "wb") as links:
-    pickle.dump(valid, links, 2)
+      # check for no view items not having live content.
+      # items is reversed: if the current item has views, the rest can be skipped
+      if views:
+        break
 
-  # store the rest of the index back to file or re-initialize it
-  # if nothing to store
-  if tail:
-    with open("search_terms.pkl", "wb") as index:
-      pickle.dump(tail, index, 2)
-  else:
-    init()
+      elif live == "none":
+        title = item["snippet"]["title"]
+        link = "https://www.youtube.com/watch?v="+vid_id
+        view_count = stats["views"]
+        upload_date = stats["upload_date"]
+        print title
+        print link
+
+        # add info as a tuple to valid
+        valid.append((title, link, view_count, upload_date))
+
+
+    # store valid to file
+    with open("links.pkl", "wb") as links:
+      pickle.dump(valid, links, 2)
+
+    # store the rest of the index back to file or re-initialize it
+    # if nothing to store
+    if tail:
+      with open("search_terms.pkl", "wb") as index:
+        pickle.dump(tail, index, 2)
+    else:
+      init()
 
 
 #==============================================================================
@@ -238,6 +259,7 @@ def main():
   parser.add_argument("--bot", help="Tweet the next result from links.dat", action="store_true")
   parser.add_argument("--init", help="Initialize an empty set of links and create a search index by reading dict.txt. An optional argument matching a search term in dict.txt can be provided to mark the starting point of the index.", nargs="?", const=True, metavar="search term")
   parser.add_argument("--show", help="Show contents of links.pkl.", action="store_true")
+  parser.add_argument("--empty", help="Soft initialization: empty links.pkl but keep the index intact.", action="store_true")
   args = parser.parse_args()
 
   #========#
@@ -258,6 +280,13 @@ def main():
     with open("links.pkl", "rb") as links:
       link_data = pickle.load(links)
     pprint.pprint(link_data)
+
+  #=========#
+  # --empty #
+  #=========#
+  elif args.empty:
+    with open("links.pkl", "wb") as links:
+      pickle.dump([], links, 2)
 
   #==================================================#
   # --bot, either:                                   #
@@ -303,18 +332,24 @@ def main():
   #===================#
   # -q, sample search #
   #===================#
-  elif args.q:
-    res = youtube_query(args.q)
-    token = res["page_token"]
-    while token != None:
-      res = youtube_query(args.q, page_token=token)
-      token = res["page_token"]
+   elif args.q:
+    response = youtube_query(args.q)
 
-    stats = get_stats(res["vid_id"])
-    print "Title:", res["title"]
-    print "URL:", "https://www.youtube.com/watch?v="+res["vid_id"]
-    print "View count", stats["views"]
-    print "Uploaded:", stats["upload_date"]
+    # get the last item from the response
+    res = response["items"][-1]
+
+    vid_id = res["id"]["videoId"]
+    stats = get_stats(vid_id)
+    views = int(stats["views"])
+
+    title = res["snippet"]["title"]
+    link = "https://www.youtube.com/watch?v="+vid_id
+    view_count = stats["views"]
+    upload_date = stats["upload_date"]
+    print title
+    print link
+    print "views:", views
+    print "uploaded:", upload_date
 
   #==================================#
   # no argument provided, show usage #

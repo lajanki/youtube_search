@@ -43,6 +43,9 @@ python youtube_search.py -q [search_term]
 python youtube_search.py --show
   * Shows contents of the currently stored links to be tweeted.
 
+python youtube_search.py --empty
+  * Empties the contents of links.pkl but keeps the index intact.
+
 
 ## File structure
 youtube_search.py
@@ -63,6 +66,12 @@ links.pkl
 
 
 ## Changelog
+3.4.2016
+  * Querying: changed paginitaion in youtube_query() to use the API's list_next() method
+  * Parsing: zero_search() now parses more than one results per search term (by default, all items in the last page of the results)
+  * Parsing: search results with liveContent == "upcoming" are now considered invalid (results to "upcoming" videos that have already occured and can no longer be viewed, maybe find out why this is happening)
+  * Maintenance: added an --empty switch for emptying links.pkl
+
 25.2.2016
   * I/O: output is now stored as pickle encoded dicts (links.pkl) instead of a raw csv text file.
   * I/O: added a dynamic index file (search_terms.pkl) to keep track of which words to read next, no more cumbersome byte index method.
