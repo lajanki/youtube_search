@@ -1,70 +1,70 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-###############################################################################
-# youtube_search.py                                                           #
-#                                                                             #
-# Searches for YouTube videos with no views (by default)                      #
-#                                                                             #
-# The Google YouTube Data API comes with certain restrictions that prevents   #
-# from directly searching for content with no views. Namely:                  #
-# 1)  one cannot use view count as a search parameter, and                    #
-# 2)  any search query will return at most 500 results.                       #
-#                                                                             #
-# This script uses a brute force type approach by performing the search to a  #
-# bunch of search terms and saves the results with zero views to a file.      #
-#                                                                             #
-# The search terms are read from a dictionary file consisting of ~ 71 000     #
-# words. The script runs around a buffer based system: the words are read     #
-# in groups of 50, these are then queried against the YouTube API and valid   #
-# results are stored to file (links.pkl). The next runs of the script then    #
-# tweets the topmost result until the file is exhausted and the next 50       #
-# search terms are processed for new results.                                 #
-#                                                                             #
-# Changelog:                                                                  #
-# 8.8.2016                                                                    #
-#   * Querying: youtube_query() now checks whether the current page is empty  #
-#     and returns the last non-empty page                                     #
-#   * Querying: added common.txt as a source for common multi word search     #
-#     terms                                                                   #
-#   * Querying: added option to use a random year long time window to         #
-#     narrow done results.                                                    #
-#       TODO: find out if this has any effect                                 #
-#   * Bot behavior: added a --parse switch to keep the tweet and parsing new  #
-#     videos separate. The intended behavior is now to parse for a large      #
-#     number of videos once a day and do nothing if links.json is empty       #
-#   * Code cleanup:                                                           #
-#       * moved from pickle to json and deleted the --show switch             #
-#       * moved some stuff under main to functions for readability            #
-#       * command line arguments are now properly parsed before calling       #
-#         main()                                                              #
-#                                                                             #
-# 3.4.2016                                                                    #
-#   * Querying: changed paginitaion in youtube_query() to use the API's       #
-#     list_next() method                                                      #
-#   * Parsing: zero_search() now parses more than one results per search term #
-#     (by default, all items in the last page of the results)                 #
-#   * Parsing: search results with liveContent == "upcoming" are now          #
-#     considered invalid (results to "upcoming" videos that have already      #
-#     occured and can no longer be viewed, maybe find out why this            #
-#     is happening?)                                                          #
-#   * Maintenance: added an --empty switch for emptying links.pkl             #
-#                                                                             #
-# 25.2.2016                                                                   #
-#   * I/O: output is now stored as pickle encoded dicts (links.pkl)           #
-#     instead of a raw csv text file.                                         #
-#   * I/O: added a dynamic index file (search_terms.pkl) to keep track of     #
-#     which words to read next, no more cumbersome byte index method.         #
-#   * Code cleanup: the zero search part is now down to 1 function,           #
-#     (zero_search()) and the bot feature is moved directly under main()      #
-#                                                                             #
-# 16.1.2016                                                                   #
-#   * Code cleanup: added publishedBefore argument to                         #
-#     youtube.search().list()                                                 #
-#                                                                             #
-# 12.9.2015                                                                   #
-#   * Initial release                                                         #
-###############################################################################
+"""
+youtube_search.py
+
+searches for YouTube videos with no views
+
+The Google YouTube Data API comes with certain restrictions that prevents
+from directly searching for content with no views. Namely: 
+  1)  one cannot use view count as a search parameter, and 
+  2)  any search query will return at most 500 results.
+
+This script uses a brute force type approach by performing the search to a
+bunch of search terms and saves the results with zero views to a file.
+
+The search terms are read from a dictionary file consisting of ~ 71 000
+words. The script runs around a buffer based system: the words are read
+in groups of 50, these are then queried against the YouTube API and valid
+results are stored to file (links.pkl). The next runs of the script then
+tweets the topmost result until the file is exhausted and the next 50 
+search terms are processed for new results. 
+
+Changelog:
+8.8.2016
+  * Querying: youtube_query() now checks whether the current page is empty
+	and returns the last non-empty page
+  * Querying: added common.txt as a source for common multi word search 
+	terms
+	* Querying: added option to use a random year long time window to
+	  narrow done results.
+		TODO: find out if this has any effect
+	* Bot behavior: added a --parse switch to keep the tweet and parsing new
+	  videos separate. The intended behavior is now to parse for a large
+	  number of videos once a day and do nothing if links.json is empty
+	* Code cleanup:
+	  * moved from pickle to json and deleted the --show switch
+	  * moved some stuff under main to functions for readability
+	  * command line arguments are now properly parsed before calling
+		main()
+
+3.4.2016
+  * Querying: changed paginitaion in youtube_query() to use the API's
+	list_next() method
+  * Parsing: zero_search() now parses more than one results per search term
+	(by default, all items in the last page of the results)
+  * Parsing: search results with liveContent == "upcoming" are now
+	considered invalid (results to "upcoming" videos that have already
+	occured and can no longer be viewed, maybe find out why this
+	is happening?)
+  * Maintenance: added an --empty switch for emptying links.pkl
+
+25.2.2016
+  * I/O: output is now stored as pickle encoded dicts (links.pkl)
+	instead of a raw csv text file.
+  * I/O: added a dynamic index file (search_terms.pkl) to keep track of
+	which words to read next, no more cumbersome byte index method.
+  * Code cleanup: the zero search part is now down to 1 function,
+	(zero_search()) and the bot feature is moved directly under main()
+
+16.1.2016
+  * Code cleanup: added publishedBefore argument to
+	youtube.search().list()
+
+12.9.2015
+  * Initial release
+"""
  
 
 import time
@@ -292,6 +292,7 @@ def zero_search(n = 200, last_only = False, random_window = False):
         print "liveBroadcastContent: ", live
         print link
 
+
   # add valid to file, don't overwrite previous
   with open(rpi_path + "links.json") as f:
     old = json.load(f)
@@ -414,6 +415,7 @@ def main(args):
   # attempt to tweet the top item in links.json
   elif args.tweet:
     tweet()
+    print "\n"
 
 
   # --parse
@@ -433,6 +435,7 @@ def main(args):
 
     else:
       print "No action,", len(links), "links left in links.json"
+    print "\n"
 
 
   # -q
@@ -469,7 +472,7 @@ def main(args):
 #==============================================================================
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description = "Search for and tweet Youtube videos with no or little views.")
-  parser.add_argument("-q", help = "Perform a sample search on given search term. Returns the item with least views.", metavar = "search_term")
+  parser.add_argument("-q", help = "Perform a sample search on given search term. Returns the item with least views.", metavar = "search term")
   parser.add_argument("--tweet", help = "Tweet the next result from links.dat", action = "store_true")
   parser.add_argument("--init", help = """Initialize an empty set of links and create a search index by reading dict.txt.
     An optional argument matching a search term in dict.txt can be provided to mark the starting point of the index.""",
