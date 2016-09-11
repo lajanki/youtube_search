@@ -1,8 +1,10 @@
 {
-  "API_KEY":"",
-  "API_SECRET":"",
-  "OAUTH_TOKEN":"",
-  "OAUTH_SECRET":"",
-  "GOOGLE_DEVELOPER_KEY":""
+  "TWITTER_API_KEY":"",
+  "TWITTER_API_SECRET":"",
+  "TWITTER_OAUTH_TOKEN":"",
+  "TWITTER_OAUTH_SECRET":"",
+  "GOOGLE_API_KEY":"",
+  "BITLY_USER": "",
+  "BITLY_API": ""
 }
   

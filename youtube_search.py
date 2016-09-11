@@ -22,6 +22,9 @@ tweets the topmost result until the file is exhausted and the next 50
 search terms are processed for new results. 
 
 Changelog:
+11.9.2016
+  * Added bit.ly support for shortening links.
+
 8.8.2016
   * Querying: youtube_query() now checks whether the current page is empty
 	and returns the last non-empty page
@@ -73,6 +76,7 @@ import random
 import twython
 import argparse
 import datetime
+import bitly_api
 
 from apiclient.discovery import build
 from apiclient.errors import HttpError
@@ -85,14 +89,12 @@ rpi_path = "/home/pi/python/youtube_search/"
 with open(rpi_path + "keys.json") as f:
   keys = json.load(f)
 
-# Set DEVELOPER_KEY to the API key value from the APIs & auth > Registered apps
-# tab of
-#   https://cloud.google.com/console
-# Please ensure that you have enabled the YouTube Data API for your project.
-DEVELOPER_KEY = keys["GOOGLE_DEVELOPER_KEY"]
+# Set API key to the key at APIs & auth > Registered apps tab of
+# https://cloud.google.com/console
+GOOGLE_API_KEY = keys["GOOGLE_API_KEY"]
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
-youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey = DEVELOPER_KEY)
+youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey = GOOGLE_API_KEY)
 
 
 #========================================================================================
@@ -137,21 +139,35 @@ def tweet():
   #print time.strftime("%d.%m.%Y %H:%M:%S")
   # 1 check if there is something to tweet
   if link_data:
-    link = link_data.pop(0) 
+    link = link_data.pop(0)
+    # try to create a bit.ly link or revert
+    # back to original url if not succesful 
+    try:
+      url = shorten_link(link["link"])
+    except bitly_api.BitlyError as e:
+      print e
+      print "Using original url"
+      url = link["link"]
+    except KeyError as e:
+      print e
+      print "Missing bit.ly keys in keys.json. Using original url"
+      url = link["link"]
 
     # format the tweet
-    msg = link["title"] + "\n" + link["link"] + "\n" + "uploaded: " + link["date"] + "\n" + "views: " + link["views"]
+    msg = link["title"] + "\n" + url + "\n" + "uploaded: " + link["date"] + "\n" + "views: " + link["views"]
     surplus = len(msg) - 140
 
     # if tweet too long, cut title
     if surplus:
-      msg = link["title"][:-surplus] + "\n" + link["link"] + "\n" + "uploaded: " + link["date"] + "\n" + "views: " + link["views"]
+      msg = link["title"][:-surplus] + "\n" + url + "\n" + "uploaded: " + link["date"] + "\n" + "views: " + link["views"]
       print "Title cut to keep tweet within 140 characters."
+    # encode to uft8 for printing and sending to Twitter
+    msg = msg.encode("utf8")
 
-    API_KEY = keys["API_KEY"]
-    API_SECRET = keys["API_SECRET"]
-    OAUTH_TOKEN = keys["OAUTH_TOKEN"]
-    OAUTH_SECRET = keys["OAUTH_SECRET"]
+    API_KEY = keys["TWITTER_API_KEY"]
+    API_SECRET = keys["TWITTER_API_SECRET"]
+    OAUTH_TOKEN = keys["TWITTER_OAUTH_TOKEN"]
+    OAUTH_SECRET = keys["TWITTER_OAUTH_SECRET"]
     twitter = twython.Twython(API_KEY, API_SECRET, OAUTH_TOKEN, OAUTH_SECRET)
     twitter.update_status(status = msg)
     print "Latest tweet:"
@@ -251,8 +267,18 @@ def zero_search(n = 200, last_only = False, random_window = False):
   # call youtube_query to get the page containing
   # the least viewed search results
   for search_term in working_set:
+    search_term = search_term.encode("utf8") # encode to utf8 for executing the search request in youtube_query()
     search_params["q"] = search_term
-    response = youtube_query(search_params)
+    try:
+     response = youtube_query(search_params)
+    except UnicodeEncodeError as e:
+      print e
+      print "See response_error.log for details" 
+      timestamp = time.strftime("%d.%m.%Y %H:%M:%S")
+      with open("search_response.log", "a+") as f:
+        f.write(timestamp + "\n")
+        json.dump(response, f, indent=4, separators=(',', ': '), sort_keys=True)
+
 
     # if no results, skip to next search_term
     if response is None:
@@ -280,7 +306,7 @@ def zero_search(n = 200, last_only = False, random_window = False):
         link = "https://www.youtube.com/watch?v=" + vid_id
         view_count = stats["views"]
         upload_date = stats["upload_date"]
-        print title
+        print title.encode("utf8")
         print link
 
         # add info as a tuple to valid
@@ -297,7 +323,9 @@ def zero_search(n = 200, last_only = False, random_window = False):
   with open(rpi_path + "links.json") as f:
     old = json.load(f)
 
-  # reopen in w mode to overwite previous data
+  # Reopen in w mode to overwite previous data.
+  # Note: non-ASCII characters in titles will be escaped with \uxxxx,
+  # see documentation at https://docs.python.org/2/library/json.html
   with open(rpi_path + "links.json", "w") as f:
     valid.extend(old)
     json.dump(valid, f)
@@ -384,6 +412,23 @@ def randomize_window():
   start = d.isoformat("T") + "Z"
 
   return {"start": start, "end":end}
+
+
+def shorten_link(url):
+  """Shorten a link url using bitly API.
+  Note: creates a new bitly object every time called.
+  Should be changed if several links need to shortened in one go.
+  Arg:
+    url (string): the link to shorten
+  Return:
+    the shortened url
+  """
+  BITLY_USER_KEY = keys["BITLY_USER"]
+  BITLY_API_KEY = keys["BITLY_API"]
+  bitly = bitly_api.Connection(BITLY_USER_KEY, BITLY_API_KEY)
+  response = bitly.shorten(url)
+  return response["url"]
+
 
 
 
@@ -473,7 +518,7 @@ def main(args):
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description = "Search for and tweet Youtube videos with no or little views.")
   parser.add_argument("-q", help = "Perform a sample search on given search term. Returns the item with least views.", metavar = "search term")
-  parser.add_argument("--tweet", help = "Tweet the next result from links.dat", action = "store_true")
+  parser.add_argument("--tweet", help = "Tweet the next result from links.json", action = "store_true")
   parser.add_argument("--init", help = """Initialize an empty set of links and create a search index by reading dict.txt.
     An optional argument matching a search term in dict.txt can be provided to mark the starting point of the index.""",
     nargs = "?", const = True, metavar = "search term")
