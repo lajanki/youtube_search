@@ -22,9 +22,6 @@ tweets the topmost result until the file is exhausted and the next 50
 search terms are processed for new results. 
 
 Changelog:
-11.9.2016
-  * Added bit.ly support for shortening links.
-
 8.8.2016
   * Querying: youtube_query() now checks whether the current page is empty
 	and returns the last non-empty page
@@ -76,7 +73,6 @@ import random
 import twython
 import argparse
 import datetime
-import bitly_api
 
 from apiclient.discovery import build
 from apiclient.errors import HttpError
@@ -140,27 +136,23 @@ def tweet():
   # 1 check if there is something to tweet
   if link_data:
     link = link_data.pop(0)
-    # try to create a bit.ly link or revert
-    # back to original url if not succesful 
-    try:
-      url = shorten_link(link["link"])
-    except bitly_api.BitlyError as e:
-      print e
-      print "Using original url"
-      url = link["link"]
-    except KeyError as e:
-      print e
-      print "Missing bit.ly keys in keys.json. Using original url"
-      url = link["link"]
+    url = link["link"]
 
-    # format the tweet
-    msg = link["title"] + "\n" + url + "\n" + "uploaded: " + link["date"] + "\n" + "views: " + link["views"]
-    surplus = len(msg) - 140
-
-    # if tweet too long, cut title
-    if surplus:
-      msg = link["title"][:-surplus] + "\n" + url + "\n" + "uploaded: " + link["date"] + "\n" + "views: " + link["views"]
+    # format the tweet:
+    # for long tweets, cut the title to 75 characters
+    # url = 23 characters (after Twitter shortening, see https://support.twitter.com/articles/78124)
+    # date = 20
+    # views ~ 8
+    # linebreaks = 3
+    # => title: first 70 characters + ...
+    if len(link["title"]) > 75:
+      title = link["title"][:72] + "..."
       print "Title cut to keep tweet within 140 characters."
+    else:
+      title = link["title"]
+
+    msg = title + "\n" + url + "\n" + "uploaded: " + link["date"] + "\n" + "views: " + link["views"]
+
     # encode to uft8 for printing and sending to Twitter
     msg = msg.encode("utf8")
 
@@ -169,7 +161,14 @@ def tweet():
     OAUTH_TOKEN = keys["TWITTER_OAUTH_TOKEN"]
     OAUTH_SECRET = keys["TWITTER_OAUTH_SECRET"]
     twitter = twython.Twython(API_KEY, API_SECRET, OAUTH_TOKEN, OAUTH_SECRET)
-    twitter.update_status(status = msg)
+    try:
+      twitter.update_status(status = msg)
+    except twython.exceptions.TwythonError as e:
+      print e
+      print "Attempted to tweet:"
+      print msg
+      print "Length:", len(msg)
+
     print "Latest tweet:"
     print msg
       
@@ -412,24 +411,6 @@ def randomize_window():
   start = d.isoformat("T") + "Z"
 
   return {"start": start, "end":end}
-
-
-def shorten_link(url):
-  """Shorten a link url using bitly API.
-  Note: creates a new bitly object every time called.
-  Should be changed if several links need to shortened in one go.
-  Arg:
-    url (string): the link to shorten
-  Return:
-    the shortened url
-  """
-  BITLY_USER_KEY = keys["BITLY_USER"]
-  BITLY_API_KEY = keys["BITLY_API"]
-  bitly = bitly_api.Connection(BITLY_USER_KEY, BITLY_API_KEY)
-  response = bitly.shorten(url)
-  return response["url"]
-
-
 
 
 #==============================================================================
