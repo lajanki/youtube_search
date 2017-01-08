@@ -22,6 +22,11 @@ tweets the topmost result until the file is exhausted and the next 50
 search terms are processed for new results. 
 
 Changelog:
+8.1.2017
+  * Fixed the -q switch, which has apparently been broken for quite a while...
+  * Added a format_search_params() for formatting search parameters to the format required by
+    youtube_query()
+  * Minor code cleanup
 8.8.2016
   * Querying: youtube_query() now checks whether the current page is empty
 	and returns the last non-empty page
@@ -79,7 +84,7 @@ from apiclient.errors import HttpError
 
 
 
-rpi_path = "/home/pi/python/youtube_search/"
+rpi_path = "./"  # path to the working folder (ie. where this script is located)
 
 # Get required Twitter and Google keys from file.
 with open(rpi_path + "keys.json") as f:
@@ -97,14 +102,12 @@ youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey = GO
 # Bot functions =
 #================
 def init_bot(start = None):
-  """Read contents of dict.txt and store it as a working file in search_terms.json,
-  from which they will be deleted once processed.
+  """Initializes the bot by parsing the contents of dict.txt as a dynamic index of search terms
+  in search_terms.json, from which search terms will be deleted once processed. Also
+  initializes a links.json file for detected items with no views.
   Arg:
     start (string): the search term to start building the index. Should be one of the
     search terms in dict.txt.
-  Modifies:
-    search_terms.json: file for search terms to use
-    links.json: links for valid videos found
   """
   # read dict.txt to a list split by newlines
   with open(rpi_path + "dict.txt", "r") as f:
@@ -118,29 +121,28 @@ def init_bot(start = None):
       print e
       print "Using the full index."
 
-  # overwrite previous search_terms.json
   with open(rpi_path + "search_terms.json", "w") as f:
     json.dump(search_terms, f)
 
-  # init an empty links.json
+  # Init an empty list for links.json.
   with open(rpi_path + "links.json", "w") as f:
     json.dump([], f)
 
 
 def tweet():
-  """tweet the top item from links.json or do nothing if empty."""
+  """Attempts to tweets the topmost item from links.json."""
   with open(rpi_path + "links.json", "r") as f:
     link_data = json.load(f)
 
   #print time.strftime("%d.%m.%Y %H:%M:%S")
-  # 1 check if there is something to tweet
+  # Check if there actually is something to tweet
   if link_data:
     link = link_data.pop(0)
     url = link["link"]
 
-    # format the tweet:
+    # Format the tweet message:
     # for long tweets, cut the title to 75 characters
-    # url = 23 characters (after Twitter shortening, see https://support.twitter.com/articles/78124)
+    # url = 23 characters (after Twitter's own shortening, see https://support.twitter.com/articles/78124)
     # date = 20
     # views ~ 8
     # linebreaks = 3
@@ -153,7 +155,7 @@ def tweet():
 
     msg = title + "\n" + url + "\n" + "uploaded: " + link["date"] + "\n" + "views: " + link["views"]
 
-    # encode to uft8 for printing and sending to Twitter
+    # Encode to uft8 for printing and sending to Twitter.
     msg = msg.encode("utf8")
 
     API_KEY = keys["TWITTER_API_KEY"]
@@ -172,11 +174,11 @@ def tweet():
     print "Latest tweet:"
     print msg
       
-    # write the rest of link_data back to file
+    # Write the rest of link_data back to file.
     with open(rpi_path + "links.json", "w") as f:
         json.dump(link_data, f)
 
-  # nothing to tweet
+  # There was nothing to tweet.
   else:
     print "links.json in empty"
 
@@ -185,14 +187,14 @@ def tweet():
 # Youtube query functions =
 #==========================
 def youtube_query(search_params):
-  """Query YouTube using search_term. Order results by viewcount and
+  """Perform a single YouTube query using search_term as a search term. Order results by viewcount and
   return the final page of results.
   Arg:
-    search_params (dict): a dict of q, publishedBefore and publishedAfter arguments to be passed to
+    search_params (dict): a dict of {q, publishedBefore, publishedAfter} arguments to be passed to
     youtube.search().list()
   Return:
     the final page of the results as dicts of items returned by YouTube API
-    or None if no results
+    or None if no results.
   """
   request = youtube.search().list(
     q = search_params["q"],
@@ -205,15 +207,15 @@ def youtube_query(search_params):
     type = "video"
   )
 
-  # call list_next() until no more pages to fetch or no items in current page
+  # Call list_next() until no more pages to fetch or no items in current page.
   response = None
   while request is not None:
     prev_response = response
     response = request.execute()
     request = youtube.search().list_next(request, response)
 
-    # if the current response doesn't contain any items,
-    # return the previous response (may be None)
+    # If the current response doesn't contain any items,
+    # return the previous response (possibly None).
     if not response["items"]:
       #print "empty page, returning previous page"
       return prev_response
@@ -222,7 +224,7 @@ def youtube_query(search_params):
 
 
 def zero_search(n = 200, last_only = False, random_window = False):
-  """Query YouTube on search terms read from search_terms.json and common.txt
+  """Perform a YouTube query using search terms read from search_terms.json and common.txt
   and parse them for zero view videos. Store results to
   links.json. Search terms are read evenly from both input sources.
   Args:
@@ -230,41 +232,31 @@ def zero_search(n = 200, last_only = False, random_window = False):
     last_only (boolean): whether only the last item (==least views) of the YouTube query
       results should be processed
     random_window (boolean): whether a year long time window should be randomly generated
-      for querying YouTube
+      as an additional search parameter. If False, the search window will be
+      before a year ago from today.
   """
   with open(rpi_path + "search_terms.json", "r") as f:
     search_terms = json.load(f)
 
-  # init a list for zero view items
+  # Init a list for detected zero view items.
   valid = [] 
 
-  # get the first n/2 search terms from file
+  # Get the first n/2 search terms from search_terms.json.
   next_slice = search_terms[:n/2]
   working_set = next_slice
   tail = search_terms[n/2 + 1:]
 
-  # pick another n/2 search terms randomly from common.txt
+  # Pick another n/2 search terms randomly from common.txt
   # using random_search_term()
   for i in range(n/2):
     term = random_search_term(2)
     working_set.append(term)
 
-  # define search parameters: search term, after and before
-  search_params = {"q":None, "before":None, "after":None}
-  # use random time window
-  if random_window:
-    window = randomize_window()
-    search_params["before"] = window["end"]
-    search_params["after"] = window["start"]
-    print "Using timewindow: {} - {}".format(window["start"], window["end"])
+  # Format a dict of {q, before, after} for search parameters.
+  search_params = format_search_params("", random_window)
 
-  # set before to year ago and keep after as None
-  else:
-    before = datetime.datetime.utcnow() - datetime.timedelta(days = 365)
-    search_params["before"] = before.isoformat("T") + "Z"
-
-  # call youtube_query to get the page containing
-  # the least viewed search results
+  # Call youtube_query to get the page containing
+  # the least viewed search results.
   for search_term in working_set:
     search_term = search_term.encode("utf8") # encode to utf8 for executing the search request in youtube_query()
     search_params["q"] = search_term
@@ -279,11 +271,11 @@ def zero_search(n = 200, last_only = False, random_window = False):
         json.dump(response, f, indent=4, separators=(',', ': '), sort_keys=True)
 
 
-    # if no results, skip to next search_term
+    # If no results, skip to next search_term.
     if response is None:
       continue
 
-    # loop through items in the last page
+    # Loop through items in the last page.
     print search_term
 
     items = response["items"]
@@ -294,31 +286,31 @@ def zero_search(n = 200, last_only = False, random_window = False):
       stats = get_stats(vid_id)
       views = int(stats["views"])
       live = item["snippet"]["liveBroadcastContent"]
+      link = "https://www.youtube.com/watch?v=" + vid_id
 
-      # check for no view items not having live content.
+      # Check for no view items not having live content (past events with live content are not viewvable anymore).
       # items is reversed: if the current item has views, the rest can be skipped
       if views:
         break
 
       elif live == "none":
         title = item["snippet"]["title"]
-        link = "https://www.youtube.com/watch?v=" + vid_id
         view_count = stats["views"]
         upload_date = stats["upload_date"]
         print title.encode("utf8")
         print link
 
-        # add info as a tuple to valid
+        # Add info as a tuple to valid.
         data = {"title": title, "link": link, "views": view_count, "date": upload_date}
         valid.append(data)
 
-      # no views, but has live content: print for logging purposes
+      # No views, but has live content: print for logging purposes.
       else:
         print "liveBroadcastContent: ", live
         print link
 
 
-  # add valid to file, don't overwrite previous
+  # Add valid to file, don't overwrite previous.
   with open(rpi_path + "links.json") as f:
     old = json.load(f)
 
@@ -329,8 +321,8 @@ def zero_search(n = 200, last_only = False, random_window = False):
     valid.extend(old)
     json.dump(valid, f)
 
-  # store the rest of the index back to file or re-initialize it
-  # if nothing to store
+  # Store the rest of the index back to file or re-initialize it
+  # if there nothing left to store.
   if tail:
     with open(rpi_path + "search_terms.json", "w") as f:
       json.dump(tail, f)
@@ -373,14 +365,14 @@ def random_search_term(nword = 1):
   Return:
     the search term
   """
-  # combine two or more common words for long search term
+  # Combine two or more common words for long search term.
   if nword > 1:
     with open(rpi_path + "common.txt") as f:
       lines = [line.rstrip("\n") for line in f]
       rand = random.sample(lines, nword)
       rand = " ".join(rand)
 
-  # use dict.txt for single word search terms
+  # Use dict.txt for single word search terms.
   else:
     with open(rpi_path + "dict.txt") as f:
       lines = [line.rstrip("\n") for line in f]
@@ -395,32 +387,55 @@ def randomize_window():
   Return:
     a dict of "start" and "end" values
   """
-  # compute how many days between today and 1.1.2006
+  # Compute how many days between today and 1.1.2006.
   delta = datetime.date.today() - datetime.date(2006, 1, 1)
   delta = delta.days
 
-  # randomly choose a day delta between [365, delta] and create a timestap
-  # for the end date
+  # Randomly choose a day delta between [365, delta] and create a timestap
+  # for the end date.
   delta = random.randint(365, delta)
   d = datetime.datetime.utcnow()
   d = d - datetime.timedelta(days = delta)
   end = d.isoformat("T") + "Z"
 
-  # timestamp for year earlier for start
+  # Timestamp for year earlier for start.
   d = d - datetime.timedelta(days = 365)
   start = d.isoformat("T") + "Z"
 
   return {"start": start, "end":end}
 
 
+def format_search_params(q, random_window = False):
+  """Format a dict of query parameters to pass
+  to youtube_query().
+  Args:
+    q (string): the search term to use
+    random_window: (boolean): whether a randomized timewindow should be generated.
+  Return:
+    a dict of {q, before, after}
+  """
+  search_params = {"q": q, "before": None, "after": None}
+  if random_window:
+    window = randomize_window()
+    search_params["before"] = window["end"]
+    search_params["after"] = window["start"]
+    print "Using timewindow: {} - {}".format(window["start"], window["end"])
+
+  else:
+    before = datetime.datetime.utcnow() - datetime.timedelta(days = 365)
+    search_params["before"] = before.isoformat("T") + "Z"
+
+  return search_params
+
+
 #==============================================================================
 # Main =
 #=======
 def main(args):
-  """Define procedures for each argument."""
+  """Define procedures for each command line argument."""
 
   # --init
-  # initialize search_terms.json
+  # Initialize search_terms.json.
   if args.init:
     if isinstance(args.init, str):
       print "Initializing index starting from " + args.init + "..."
@@ -430,23 +445,16 @@ def main(args):
       init_bot()
 
 
-  # --empty
-  # initialize links.json
-  elif args.empty:
-    with open("links.json", "w") as f:
-      json.dump([], f)
-
-
   # --tweet
-  # attempt to tweet the top item in links.json
+  # Attempt to tweet the top item in links.json.
   elif args.tweet:
     tweet()
     print "\n"
 
 
   # --parse
-  # store new links to file and measure execution time.
-  # Only parse new links if < 10 items currently stored
+  # Call zero_search() to store new links to links.json and measure execution time.
+  # Only parse new links if < 10 items currently stored.
   elif args.parse:
     with open(rpi_path + "links.json") as f:
       links = json.load(f)
@@ -465,15 +473,15 @@ def main(args):
 
 
   # -q
-  # sample search to console, does not guarentee a zero view item
+  # Perform a sample search to console, does not guarentee a zero view item.
   elif args.q:
-    response = youtube_query(args.q, random_window = args.random_window)
-
-    if response is None:
+    search_params = format_search_params(args.q, args.random_window)  # format a dict of parameters as required by youtube_query()
+    response = youtube_query(search_params)
+    if not response:
       print "No results"
     
     else:
-      # get all items from the last page of results
+      # Get all items from the last page of results.
       for res in response["items"]:
         vid_id = res["id"]["videoId"]
         stats = get_stats(vid_id)
@@ -489,7 +497,7 @@ def main(args):
         print "uploaded:", upload_date
 
 
-  # no argument provided, show usage
+  # No argument provided, show usage.
   else:
     parser.print_help()
 
@@ -498,18 +506,18 @@ def main(args):
 #==============================================================================
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description = "Search for and tweet Youtube videos with no or little views.")
-  parser.add_argument("-q", help = "Perform a sample search on given search term. Returns the item with least views.", metavar = "search term")
-  parser.add_argument("--tweet", help = "Tweet the next result from links.json", action = "store_true")
-  parser.add_argument("--init", help = """Initialize an empty set of links and create a search index by reading dict.txt.
-    An optional argument matching a search term in dict.txt can be provided to mark the starting point of the index.""",
-    nargs = "?", const = True, metavar = "search term")
-  parser.add_argument("--parse", help = "Parse n next search terms for zero view items and store to links.json.", metavar = "n", type = int)
-  parser.add_argument("--empty", help = "Soft initialization: empty links.json but keep the index intact.", action = "store_true")
-  parser.add_argument("--random-window", help = """Whether a randmized, year long, time window should be used when
-    querying YouTube. Affects -q and --parse switches.""", action = "store_true")
+  parser.add_argument("-q", help = "Perform a sample search on given search term. Prints the items with least views to stdout.", metavar = "search_term")
+  parser.add_argument("--tweet", help = "Tweet the next result stored in links.json.", action = "store_true")
+  parser.add_argument("--init", help = "Create a search terms index at search_terms.json by reading dict.txt. \
+    The optional argument determines the word to start building the index from.",
+    nargs = "?", const = True, metavar = "search_term")
+  parser.add_argument("--parse", help = "Parse n next search terms from search_terms.json for zero view items and store to links.json.", metavar = "n", type = int)
+  parser.add_argument("--random-window", help = "Whether a randomized year long time window should be used when querying Youtube.\
+    Affects the -q and --parse switches.", action="store_true")
   args = parser.parse_args()
   #print args
 
+  
   try:
     main(args)
   except HttpError as e:
@@ -517,6 +525,7 @@ if __name__ == "__main__":
   except IOError as e:
     print e
     print "Try initialiazing this script with the --init switch"
+  
 
 
   
