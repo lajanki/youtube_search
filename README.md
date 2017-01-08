@@ -26,30 +26,25 @@ https://twython.readthedocs.org/en/latest/
 https://developers.google.com/api-client-library/python/guide/aaa_apikeys
    * Store this key in the keys.json file.
    * **This key is required!** Running this script without it will result in an HTTP error with a message of "Daily Limit for Unauthenticated Use Exceeded".
- * Additionally the Twitterbot feature requires access tokens and keys from Twitter
+ * Additionally the tweeting feature requires access tokens and keys from Twitter
  https://dev.twitter.com/oauth/overview/application-owner-access-tokens
-  * Only required if run with the --bot switch.
+
 
 
 ## Usage
---init
-  * Creates an index file to be used as a source of search terms.
-
---parse
-  * Attempts to read the next batch of search terms from search_terms.json and query them for new YouTube links. Won't do anything if links.json already contains > 9 entries
-
---tweet
-  * Attempts to tweet the topmost entry in links.json. Won't do anything if links.json is empty.
-
--q [search_term]
-  * Perform a sample search on given search term and prints the results on screen. Returns the items with least views.
-
---empty
-  * Empties the contents of links.json but keeps the index intact.
-
---random window
-  * This is an option switch to --parse and -q. This will generate a random time window of one year between one year ago to 1.1.2006 to be used as an additional search parameter to YouTube.
-
+```
+  -q search_term        Perform a sample search on given search term. Prints
+                        the items with least views to stdout.
+  --tweet               Tweet the next result stored in links.json.
+  --init [search_term]  Create a search terms index at search_terms.json by
+                        reading dict.txt. The optional argument determines the
+                        word to start building the index from.
+  --parse n             Parse n next search terms from search_terms.json for
+                        zero view items and store to links.json.
+  --random-window       Whether a randomized year long time window should be
+                        used when querying Youtube. Affects the -q and --parse
+                        switches.
+```
 
 ## File structure
 youtube_search.py
@@ -70,35 +65,6 @@ search_terms.json
 
 links.json
   * List of currently stored links to be tweeted.
-
-
-## Changelog
-8.8.2016
-  * Querying: youtube_query() now checks whether the current page is empty and returns the last non-empty page
-  * Querying: added common.txt as a source for common multi word search terms
-  * Querying: added option to use a random year long time window to narrow done results.
-  * Bot behavior: separated parsing new videos from tweeting to --parse and --tweet switches
-  * Code cleanup:
-    * moved from pickle to json and deleted the --show switch
-    * moved some stuff under main to thei own functions for readability
-    * command line arguments are now properly parsed before calling main()
-
-3.4.2016
-  * Querying: changed paginitaion in youtube_query() to use the API's list_next() method
-  * Parsing: zero_search() now parses more than one results per search term (by default, all items in the last page of the results)
-  * Parsing: search results with liveContent == "upcoming" are now considered invalid (results to "upcoming" videos that have already occured and can no longer be viewed, maybe find out why this is happening)
-  * Maintenance: added an --empty switch for emptying links.pkl
-
-25.2.2016
-  * I/O: output is now stored as pickle encoded dicts (links.pkl) instead of a raw csv text file.
-  * I/O: added a dynamic index file (search_terms.pkl) to keep track of which words to read next, no more cumbersome byte index method.
-  * Code cleanup: the zero search part is now down to 1 function, (zero_search()) and the bot feature is moved directly under main()
-
-16.1.2016
-  * Code cleanup: added publishedBefore argument to youtube.search().list()
-
-12.9.2015
-  * Initial release
 
 
 Written on Python 2.7.8
