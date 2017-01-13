@@ -56,7 +56,7 @@ python twitterbot.py --tweet
 ```
 youtube_search.py is mainly a library module that performs the actual seraching, but it can also be run with
 ```
-python youtube_search -q search_term
+python youtube_search.py -q search_term
 ```
 to perform a sample search using search_term as a search term. Output will be printed to stdout and consists of the last items returned by YouTube ordered by viewcount. They are not guaranteed to be zero view items.
 
