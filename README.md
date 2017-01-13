@@ -33,38 +33,33 @@ https://developers.google.com/api-client-library/python/guide/aaa_apikeys
 
 ## Usage
 ```
-  -q search_term        Perform a sample search on given search term. Prints
-                        the items with least views to stdout.
-  --tweet               Tweet the next result stored in links.json.
-  --init [search_term]  Create a search terms index at search_terms.json by
-                        reading dict.txt. The optional argument determines the
-                        word to start building the index from.
-  --parse n             Parse n next search terms from search_terms.json for
-                        zero view items and store to links.json.
-  --random-window       Whether a randomized year long time window should be
-                        used when querying Youtube. Affects the -q and --parse
-                        switches.
+  --init           Create a search term index at search_terms.json by
+                   processing dict.txt.
+  --tweet          Tweet the next result stored in links.json.
+  --parse n        Parse n next search terms from search_terms.json for zero
+                   view items and store them to links.json.
+  --random-window  Whether a randomized year long time window should be used
+                   when querying Youtube.
+
 ```
+First, initialize the bot by
+```
+python twitterbot.py --init
+```
+This creates a dynamic index file search_terms.json for search terms to bo read frm. Next, perform a search by running
+```
+python twitterbot.py --parse n
+```
+This takes the first n/2 words from the index, performs a search and stores results with no views to links.json. Another n/2 search terms are randomly generated from combining two common words in common.txt. To tweet the topmost result in links.json, run
+```
+python twitterbot.py --tweet
+```
+youtube_search.py is mainly a library module that performs the actual seraching, but it can also be run with
+```
+python youtube_search -q search_term
+```
+to perform a sample search using search_term as a search term. Output will be printed to stdout and consists of the last items returned by YouTube ordered by viewcount. They are not guaranteed to be zero view items.
 
-## File structure
-youtube_search.py
-  * The main script.
-
-dict.txt
-  * A text file containing words to use as search terms. This file is a slightly modified version of /usr/share/dict/words found on several Linux distributions.
-
-common.txt
-  * A list of common english words to use for randomly choosing additional combined search terms
-
-keys.json
-  * An empty JSON file to store your Google API key as well as Twitter access tokens and API keys. The main script will attempt to read them from here.
-
-Additionally running the script creates:
-search_terms.json
-  * An index for single word search terms to use. Upon initialization this is essantially a copy of dict.txt. Further runs of the script will remove items as they are being used.
-
-links.json
-  * List of currently stored links to be tweeted.
 
 
 Written on Python 2.7.8
