@@ -94,14 +94,21 @@ class YoutubeParser:
     """Define path to the working folder where datafiles are stored, setup a logger and create a youtube object.
     to interact with the API.
     """
-    self.path = "/home/pi/python/youtube_search/"  # path to where external files (keys.json, dict.txt, common.txt) are stored
+    self.path = "./"  # path to where external files (keys.json, dict.txt, common.txt) are stored
     # Create a logger and attach a formatter and a file handler to it.
-    self.logger = logging.getLogger(__name__)
-    hdlr = logging.FileHandler(self.path + "search.log")
-    formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-    hdlr.setFormatter(formatter)
-    self.logger.addHandler(hdlr) 
+    log_formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+    self.logger = logging.getLogger()
     self.logger.setLevel(logging.INFO)
+
+    # Attach a FileHandler to point output to serach.log
+    file_handler = logging.FileHandler(self.path + "search.log")
+    file_handler.setFormatter(log_formatter)
+    self.logger.addHandler(file_handler)
+
+    # ...and a StreamHandler to also send output to stderr
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(log_formatter)
+    self.logger.addHandler(console_handler)
 
     # Create an object to interact with the YouTube API.
     with open(self.path + "keys.json") as f:
@@ -115,7 +122,7 @@ class YoutubeParser:
     self.youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey = GOOGLE_API_KEY)
 
     # Create a search term index if it doesn't exist.
-    if os.path.isfile(self.path + "links.json"):
+    if not os.path.isfile(self.path + "links.json"):
       self.create_index()
 
 
@@ -153,13 +160,12 @@ class YoutubeParser:
       # If the current response doesn't contain any items,
       # return the previous response (possibly None).
       if not response["items"]:
-        #print "empty page, returning previous page"
         return prev_response
 
     return response
 
 
-  def zero_search(self, n = 200, random_window = False):
+  def zero_search(self, n = 100, random_window = False):
     """Perform youtube_query() on n serach terms with:
       -n/2 items read from the top of search_terms.json, and
       -n/2 items read generated randomly by combining words in common.txt.
@@ -215,7 +221,8 @@ class YoutubeParser:
         continue
 
       # Loop through items in the last page.
-      print search_term
+      #print search_term
+      found = False
       items = response["items"]
       for item in reversed(items):
         vid_id = item["id"]["videoId"]
@@ -233,23 +240,24 @@ class YoutubeParser:
           title = item["snippet"]["title"]
           view_count = stats["views"]
           upload_date = stats["upload_date"]
-          #print title.encode("utf8")
-          #print link
 
           # Add a new entry to zero_views.
           data = {"title": title, "url": url, "views": view_count, "date": upload_date}
           zero_views.append(data)
+          found = True
 
         # No views, but has live content: print for logging purposes.
         else:
           self.logger.info("liveBroadcastContent: %s", live)
 
-          """
-          print "liveBroadcastContent: ", live
-          print link
-          """
+      # Print a checkmark if this search term provided at least one result.
+      if found:
+        print search_term + " ✓"
+      else:
+        print search_term
 
-    self.logger("Detected %s items", len(zero_views))
+
+    self.logger.info("%s new links detected", len(zero_views))
     return zero_views
 
 
