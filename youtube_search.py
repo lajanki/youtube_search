@@ -51,8 +51,8 @@ logger.addHandler(console_handler)
 
 
 
-class YouTubeExplorer:
-  """Performs YouTube queries."""
+class VideoBrowser:
+  """Contains functions for searching YouTube."""
 
   def __init__(self):
     with open("./keys.json") as f:
@@ -121,10 +121,13 @@ class YouTubeExplorer:
     return { "views": viewcount, "upload_date": date }
 
 
-class YouTubeCrawler:
+class VideoCrawler:
+  """Looks for videos with no views."""
 
   def __init__(self, base = "data/"):
-    self.index = base + "index.json"
+    self.index_path = base + "index.json"
+    self.youtube_browser = VideoBrowser()
+    self.open_index()  # make sure the index exists and is non-empty
 
   def zero_search(self, n = 100, random_window = False):
     """Perform youtube_query() on n serach terms with:
@@ -146,13 +149,11 @@ class YouTubeCrawler:
     next_slice = self.get_next_slice(n/2)
     randomized_search_terms = self.generate_random_search_terms(n/2, 2)
 
-    youtube_explorer = YouTubeExplorer()
-
     # perform a youtube query for each search term
     for search_term in next_slice + randomized_search_terms:
       search_term = search_term.encode("utf8") # encode before network I/O
       query_params = self.format_search_params(search_term)  # generates a new timewindow for each searchterm!
-      result_page = youtube_explorer.query_youtube(query_params) # result is either None or a dict containing a key for list of videos
+      result_page = self.youtube_browser.query_youtube(**query_params) # result is either None or a dict containing a key for list of videos
       if result_page:
         stats = self.parse_youtube_response(result_page)
         zero_views.extend(stats)
@@ -164,10 +165,10 @@ class YouTubeCrawler:
           print search_term
 
 
-    self.logger.info("%s new links detected", len(zero_views))
+    logger.info("%s new links detected", len(zero_views))
     return zero_views
 
-  def parse_youtube_response(response):
+  def parse_youtube_response(self, response):
     """Parse a response page from the API for videos with no views.
     Arg:
       response (dict): the API response to a search query
@@ -177,14 +178,14 @@ class YouTubeCrawler:
     valid = []
     for item in reversed(response["items"]):  # loop backwards so item with least views is first
       vid_id = item["id"]["videoId"]
-      stats = self.get_stats(vid_id)
+      stats = self.youtube_browser.get_stats(vid_id)
       views = int(stats["views"])
       live = item["snippet"]["liveBroadcastContent"]
       url = "https://www.youtube.com/watch?v=" + vid_id
 
       # return as soon as we find a video which has views
       if views:
-        return
+        return [] # return a list so the callee stays happy
 
       # skip videos with live broadcast content: these often lead to missing videos with a "content not available" notification
       if live == "none":
@@ -196,17 +197,16 @@ class YouTubeCrawler:
         data = {"title": title, "url": url, "views": view_count, "date": upload_date}
         valid.append(data)
 
-
       # No views, but has live content: print for logging purposes.
       else:
-        self.logger.info("liveBroadcastContent: %s", live)
+        logger.info("liveBroadcastContent: %s", live)
 
     return valid
 
   def get_next_slice(self, n):
     """Pop and return a random selection of n items from the index. Recreates
     the index if there are < n items left."""
-    with open(self.index) as f:
+    with open(self.index_path) as f:
       index = json.load(f)
 
     # shuffle the index to get n random elements from the head
@@ -214,12 +214,14 @@ class YouTubeCrawler:
     head = index[:n]
     tail = index[n:] # empty if < n items left in the index
 
+    # if these were the last search_terms, recreate the index
     if not tail:
       self.create_index()
 
-    # store the rest back to file
-    with open(self.index, "w") as f:
-      json.dump(tail)
+    # else, store the rest back to file
+    else:
+      with open(self.index_path, "w") as f:
+        json.dump(tail, f)
 
     return head
 
@@ -249,8 +251,21 @@ class YouTubeCrawler:
     with open("./dict.txt") as f:
       search_terms = f.read().splitlines()
 
-    with open(self.index, "w") as f:
+    with open(self.index_path, "w") as f:
       json.dump(search_terms, f)
+
+  def open_index(self):
+    """Create a new index if the file doesn't exist or is empty.
+    (happens if a custom path is used as the base directory)"""
+    if not os.path.isfile(self.index_path):
+      self.create_index()
+
+    with open(self.index_path) as f:
+      index = json.load(f)
+
+    # create the index if the file is empty
+    if not index:
+      self.create_index()
 
   def format_search_params(self, q, before = None):
     """Format a dict of query parameters to pass to the youtube query API. The parameters include
