@@ -23,30 +23,13 @@ force YouTube query on them and records links for items with no views.
 
 import json
 import random
-import argparse
+import pprint
 import datetime
-import logging
-import os.path
 
 from apiclient.discovery import build
 from apiclient.errors import HttpError
 
 
-
-# Setup a logger and attach a formatter and a file handler to it.
-log_formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-# Attach a FileHandler to point the output to a file
-file_handler = logging.FileHandler("./search.log")
-file_handler.setFormatter(log_formatter)
-logger.addHandler(file_handler)
-
-# ...and a StreamHandler to also send output to stderr
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(log_formatter)
-logger.addHandler(console_handler)
 
 class VideoCrawler:
   """Looks for videos with no views."""
@@ -57,16 +40,10 @@ class VideoCrawler:
     self.search_term_index = SearchTermIndex(base + "index.json")
     #self.open_index()  # make sure the index exists and is non-empty
 
-  def zero_search(self, n = 100, random_window = False):
-    """Perform youtube_query() on n serach terms with:
-      * n/2 items read randomly from search_terms.json, and
-      * n/2 items generated randomly by combining words in common.txt.
-    Check for videos with no views and return as a list.
+  def zero_search(self, search_terms):
+    """Performs a search for a list of search terms and records items with no views.
     Args:
-      n (int): total number of search queries to perform
-      random_window (boolean): whether a year long time window should be randomly generated
-        as an additional search parameter. If False, the search window will be set to match
-        any videos published at least a year ago from today
+      search_terms (list): a list of search terms to perform the query
     Return:
       a list of {title, url, views, published} dictionaries
     """
@@ -74,11 +51,11 @@ class VideoCrawler:
 
     # Get the first n/2 search terms from search_terms.json and another n/2 by
     # combining word from common.txt.
-    next_slice = self.get_next_slice(n/2)
-    randomized_search_terms = self.generate_random_search_terms(n/2, 2)
+    #next_slice = self.get_next_slice(n/2)
+    #randomized_search_terms = self.generate_random_search_terms(n/2, 2)
 
     # perform a youtube query for each search term
-    for search_term in next_slice + randomized_search_terms:
+    for search_term in search_terms:
       search_term = search_term.encode("utf8") # encode before network I/O
       query_params = self.format_search_params(search_term)  # generates a new timewindow for each searchterm!
       result_page = self.youtube_browser.query_youtube(**query_params) # result is either None or a dict containing a key for list of videos
@@ -90,10 +67,8 @@ class VideoCrawler:
         if stats:
           print search_term + " ✓"
         else:
-          print search_term
+          print search_term + " ✘"
 
-
-    logger.info("%s new links detected", len(zero_views))
     return zero_views
 
   def parse_youtube_response(self, response):
@@ -124,10 +99,6 @@ class VideoCrawler:
         # valid zero-view item: wrap as a dict and store
         data = {"title": title, "url": url, "views": view_count, "date": upload_date}
         valid.append(data)
-
-      # No views, but has live content: print for logging purposes.
-      else:
-        logger.info("liveBroadcastContent: %s", live)
 
     return valid
 
@@ -173,7 +144,6 @@ class VideoCrawler:
     iso_before = self.date_to_isoformat(before)
     iso_after = self.date_to_isoformat(after)
     search_params = {"q": q, "before": iso_before, "after": iso_after}
-    print "Using timewindow: {} - {}".format(iso_after, iso_before)
 
     return search_params
 
@@ -268,7 +238,14 @@ class VideoBrowser:
       id = vid_id
     ).execute()
 
-    viewcount = int(stats["items"][0]["statistics"]["viewCount"])
+    try:
+      viewcount = int(stats["items"][0]["statistics"]["viewCount"])
+    except KeyError as err:
+      print str(err)
+      print "Received the following statistics:"
+      pprint.pprint(stats)
+      viewcount = 100 # set a high viewcount to denote non zero view item
+
     date = stats["items"][0]["snippet"]["publishedAt"]
 
     # date is in ISO format (YYYY-MM-DD), reformat to DD.MM.YYYY
@@ -277,7 +254,7 @@ class VideoBrowser:
     y = date[0:4]
     date = d + "." + m + "." + y
 
-    return { "views": viewcount, "upload_date": date }
+    return {"views": viewcount, "upload_date": date }
 
 
 class SearchTermIndex:
