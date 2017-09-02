@@ -1,4 +1,4 @@
 search.log
 data/index.json
 keys.json
-
+*.pyc
