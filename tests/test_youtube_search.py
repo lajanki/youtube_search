@@ -3,8 +3,6 @@
 
 import unittest
 import os
-import logging
-import json
 import datetime
 
 
