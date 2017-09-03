@@ -60,7 +60,10 @@ class VideoCrawler:
         if stats:
           print search_term + " ✓"
         else:
-          print search_term + " ✘"
+          print search_term + " ✘"  # found results, but has views
+
+      else:
+        print search_term + " ✘" # no results
 
     return zero_views
 
@@ -233,9 +236,10 @@ class VideoBrowser:
 
     try:
       viewcount = int(stats["items"][0]["statistics"]["viewCount"])
+    # occasionally viewCount is not among the response, ignore these
     except KeyError as err:
-      print str(err)
-      print "Received the following statistics:"
+      print err
+      print "Received the following statistics:" # for now, print the received data for further study
       pprint.pprint(stats)
       viewcount = 100 # set a high viewcount to denote non zero view item
 
