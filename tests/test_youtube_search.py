@@ -13,9 +13,6 @@ import datetime
 os.chdir("..")
 import youtube_search
 
-# disable the global logging from youtube_search
-logger = logging.getLogger(__name__)
-logger.disabled = True
 
 class VideoBrowserTestCase(unittest.TestCase):
 	"""Does the browser work correctly?"""
@@ -67,6 +64,37 @@ class VideoCrawlerTestCase(unittest.TestCase):
 	@classmethod
 	def setUpClass(self):
 		self.crawler = youtube_search.VideoCrawler()
+
+	def testSearchParamFormattingWithoutDate(self):
+		"""Does format_search_params return the expected data when called with the default
+		value of None as the before date?
+		"""
+		q = "peppery"
+		res = self.crawler.format_search_params(q)
+
+		before = res["before"][:10]  # date part of the string
+		before = datetime.datetime.strptime(before, "%Y-%m-%d")
+		after = res["after"][:10]
+		after = datetime.datetime.strptime(after, "%Y-%m-%d")
+
+		delta = before - after
+		self.assertEqual(res["q"], q, "Unexpected query term")
+		self.assertEqual(delta.days, 365, "Unexpected difference between dates")
+
+	def testSearchParamFormattingWithtDate(self):
+		"""Does format_search_params return the expected data when called with a before date?"""
+		q = "peppery"
+		before = datetime.date(2015, 4, 16)
+		res = self.crawler.format_search_params(q, before)
+
+		before = res["before"][:10]  # date part of the string
+		before = datetime.datetime.strptime(before, "%Y-%m-%d")
+		after = res["after"][:10]
+		after = datetime.datetime.strptime(after, "%Y-%m-%d")
+
+		delta = before - after
+		self.assertEqual(res["q"], q, "Unexpected query term not")
+		self.assertEqual(delta.days, 365, "Unexpected difference between dates")
 
 
 class DateCreationTestCase(unittest.TestCase):
@@ -129,9 +157,9 @@ class SearchTermIndexTestCase(unittest.TestCase):
 		self.assertNotEqual(self.index.data, [], "index is empty") # only tests the data proeprty, not the index file itself!
 
 	def testSliceOnEmptyRaisesError(self):
-		"""Does attempting to read search terms from the index throw a ValueError if it is empty?"""
+		"""Does attempting to read search terms from the index throw a IndexEmptyException if it is empty?"""
 		self.index.dump([])
-		self.assertRaises(ValueError, self.index.get_slice, 6)
+		self.assertRaises(youtube_search.IndexEmptyException, self.index.get_slice, 6)
 
 	def testInValidPathCreatesAFile(self):
 		"""Does creating a SearchTermIndex object with a non exsting filename create such file?"""

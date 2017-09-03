@@ -35,10 +35,8 @@ class VideoCrawler:
   """Looks for videos with no views."""
 
   def __init__(self, base = "data/"):
-    #self.index_path = base + "index.json"
     self.youtube_browser = VideoBrowser()
     self.search_term_index = SearchTermIndex(base + "index.json")
-    #self.open_index()  # make sure the index exists and is non-empty
 
   def zero_search(self, search_terms):
     """Performs a search for a list of search terms and records items with no views.
@@ -48,11 +46,6 @@ class VideoCrawler:
       a list of {title, url, views, published} dictionaries
     """
     zero_views = []
-
-    # Get the first n/2 search terms from search_terms.json and another n/2 by
-    # combining word from common.txt.
-    #next_slice = self.get_next_slice(n/2)
-    #randomized_search_terms = self.generate_random_search_terms(n/2, 2)
 
     # perform a youtube query for each search term
     for search_term in search_terms:
@@ -134,7 +127,7 @@ class VideoCrawler:
       a dict of {q, before, after}
     """
     if before:
-      after = year_since(before)
+      after = self.year_since(before)
 
     # generate a timewindow
     else:
@@ -299,9 +292,13 @@ class SearchTermIndex:
 
     # raise an error if the index file is empty
     if not head:
-      raise ValueError("Index is empty")
+      raise IndexEmptyException("Index is empty")
 
     self.dump(tail) # note: this is not in the same order as before
     self.data = tail # update the data reference
 
     return head
+
+
+class IndexEmptyException(Exception):
+  """Custom exception for trying to pick words from an empty index."""

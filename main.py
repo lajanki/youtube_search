@@ -12,11 +12,7 @@ search terms from the index and prints a list of items with no views.
 
 
 def main(args):
-    """Define procedures for each command line argument.
-    Arg:
-      args (list): a list of command line arguments passed to the script
-    """
-
+    """Parse for new videos or initialize the index."""
     app = youtube_search.VideoCrawler()
 
     if args.parse:
@@ -42,10 +38,11 @@ def main(args):
                     print "uploaded:", result["date"]
                     print
 
-        except ValueError as err:
+        except youtube_search.IndexEmptyException as err:
             print "Search term index at {} is empty. Reinitialize it with --init and try again.".format(app.search_term_index.path)
-
-
+        except:
+            print "Something went wrong!"
+            raise
 
     elif args.init:
         app.search_term_index.refresh()
@@ -55,7 +52,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description = "Search for YouTube videos with no views.")
     parser.add_argument("--init", help = "Create a search term index file by processing dict.txt.", action = "store_true")
-    parser.add_argument("--parse", help = "Parse n next search terms from the index for zero views", metavar = "n", type = int)
+    parser.add_argument("--parse", help = "Parse n search terms from the index for zero views", metavar = "n", type = int)
     args = parser.parse_args()
 
     main(args)
