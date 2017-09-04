@@ -238,7 +238,7 @@ class VideoBrowser:
       viewcount = int(stats["items"][0]["statistics"]["viewCount"])
     # occasionally viewCount is not among the response, ignore these
     except KeyError as err:
-      print err
+      print "ERROR: couldn't find view count from the response."
       print "Received the following statistics:" # for now, print the received data for further study
       pprint.pprint(stats)
       viewcount = 100 # set a high viewcount to denote non zero view item
