@@ -20,8 +20,9 @@ common words. The words are read in groups of 50, the script performs a brute
 force YouTube query on them and records links for items with no views.
 """
 
-
+import sys
 import json
+import time
 import random
 import pprint
 import datetime
@@ -50,6 +51,9 @@ class VideoCrawler:
     # perform a youtube query for each search term
     for search_term in search_terms:
       search_term = search_term.encode("utf8") # encode before network I/O
+      print search_term + "\r",  # print the search term and a return carriage without a newline
+      sys.stdout.flush()  # force-write the above to stdout
+
       query_params = self.format_search_params(search_term)  # generates a new timewindow for each searchterm!
       result_page = self.youtube_browser.query_youtube(**query_params) # result is either None or a dict containing a key for list of videos
       if result_page:
@@ -58,12 +62,14 @@ class VideoCrawler:
 
         # Print a checkmark if this search term provided at least one result.
         if stats:
-          print search_term + " ✓"
+          print search_term + " ✓"  # rewrite search term with a checkmark
+        # found results, but has views
         else:
-          print search_term + " ✘"  # found results, but has views
+          print " " * 50 + "\r",  # write an empty line to clear the printed search term
 
+      # no results
       else:
-        print search_term + " ✘" # no results
+        print " " * 50 + "\r",
 
     return zero_views
 
