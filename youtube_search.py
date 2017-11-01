@@ -37,7 +37,6 @@ class VideoCrawler:
 
   def __init__(self, base = "data/"):
     self.youtube_browser = VideoBrowser()
-    self.search_term_index = SearchTermIndex(base + "index.json")
 
   def zero_search(self, search_terms):
     """Performs a search for a list of search terms and records items with no views.
@@ -258,57 +257,3 @@ class VideoBrowser:
     date = d + "." + m + "." + y
 
     return {"views": viewcount, "upload_date": date }
-
-
-class SearchTermIndex:
-  """Represents a stack of search terms to use to perform a YouTube query. Initialized from
-  dict.txt and dynamically discards used search terms.
-  """
-
-  def __init__(self, path):
-    self.path = path
-    try:
-      self.data = self.get_content()
-     # create the index file if it doesn't exist
-    except IOError as e:
-      self.refresh()
-
-  def get_content(self):
-    """Return the contents of the index file."""
-    with open(self.path) as f:
-      data = json.load(f)
-
-    return data
-
-  def refresh(self):
-    """Recreate the index file from dict.txt."""
-    with open("./dict.txt") as f:
-      search_terms = f.read().splitlines()
-
-    self.dump(search_terms)
-    self.data = search_terms
-
-  def dump(self, data):
-    """Write the contents of data to the index file. Overwrites previous content."""
-    with open(self.path, "w") as f:
-      json.dump(data, f)
-      self.data = data
-
-  def get_slice(self, n):
-    """Pop n random items from the index."""
-    random.shuffle(self.data)
-    head = self.data[:n]
-    tail = self.data[n:] # empty if < n items left in the index
-
-    # raise an error if the index file is empty
-    if not head:
-      raise IndexEmptyException("Index is empty")
-
-    self.dump(tail) # note: this is not in the same order as before
-    self.data = tail # update the data reference
-
-    return head
-
-
-class IndexEmptyException(Exception):
-  """Custom exception for trying to pick words from an empty index."""
