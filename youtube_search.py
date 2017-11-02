@@ -35,7 +35,7 @@ from apiclient.errors import HttpError
 class VideoCrawler:
   """Looks for videos with no views."""
 
-  def __init__(self, base = "data/"):
+  def __init__(self):
     self.youtube_browser = VideoBrowser()
 
   def zero_search(self, search_terms):
@@ -218,7 +218,12 @@ class VideoBrowser:
     while request is not None:
       prev_response = response
       response = request.execute()
-      request = self.youtube.search().list_next(request, response)
+      try:
+        request = self.youtube.search().list_next(request, response)
+      except UnicodeEncodeError:
+        print request
+        print response
+        raise
 
       # If the current response doesn't contain any items,
       # return the previous response (possibly None).
@@ -243,7 +248,7 @@ class VideoBrowser:
       viewcount = int(stats["items"][0]["statistics"]["viewCount"])
     # occasionally viewCount is not among the response, ignore these
     except KeyError as err:
-      print "ERROR: couldn't find view count from the response."
+      print "ERROR: couldn't find key 'view count' from the response."
       print "Received the following statistics:" # for now, print the received data for further study
       pprint.pprint(stats)
       viewcount = 100 # set a high viewcount to denote non zero view item
