@@ -130,38 +130,3 @@ class DateCreationTestCase(unittest.TestCase):
 		formatted = self.crawler.date_to_isoformat(today)
 
 		self.assertTrue(formatted.endswith("T00:00:00Z"), "returned date is not RFC 3339 formatted")
-
-
-class SearchTermIndexTestCase(unittest.TestCase):
-	"""Test cases for the SearchTermIndex class."""
-
-	@classmethod
-	def setUpClass(self):
-		"""Create an empty index file."""
-		self.path = "test_index.json"
-		self.invalid_path = "temp_index.json" # second path for another index file, this way we can be sure this index isn't refreshd by the other tests
-
-		self.index = youtube_search.SearchTermIndex(self.path)
-
-	@classmethod
-	def tearDownClass(self):
-		"""Delete the created index file."""
-		os.remove(self.path)
-		os.remove(self.invalid_path)
-
-	def testFilledAfterRefresh(self):
-		"""Is the index file non empty after a refresh?"""
-		self.index.refresh()
-		self.assertNotEqual(self.index.data, [], "index is empty") # only tests the data proeprty, not the index file itself!
-
-	def testSliceOnEmptyRaisesError(self):
-		"""Does attempting to read search terms from the index throw a IndexEmptyException if it is empty?"""
-		self.index.dump([])
-		self.assertRaises(youtube_search.IndexEmptyException, self.index.get_slice, 6)
-
-	def testInValidPathCreatesAFile(self):
-		"""Does creating a SearchTermIndex object with a non exsting filename create such file?"""
-		temp_index = youtube_search.SearchTermIndex(self.invalid_path)
-
-		self.assertNotEqual(temp_index.data, [], "Index is empty after instance creation")
-		self.assertTrue(os.path.isfile(self.invalid_path), "An index file didn't get created")

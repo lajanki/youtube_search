@@ -10,11 +10,28 @@ import json
 import twython
 import argparse
 import logging
+import sqlite3
+import codecs
 import youtube_search
 
-base = "bot-data/"
-links_storage = base + "links.json"
 
+# setup a folder for bot datafiles
+base = "bot-data/"
+links_storage = base + "links.db"
+if not os.path.isdir(base):
+  os.mkdir(base)
+
+con = sqlite3.connect(links_storage)
+cur = con.cursor()
+
+# silence verbose http logging done by requests via urllib3
+requests_log = logging.getLogger("requests")
+requests_log.addHandler(logging.NullHandler())
+requests_log.propagate = False
+
+#logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+# setup actual loggig
 logging.basicConfig(
 	filename = "bot.log",
 	format = "%(asctime)s %(message)s",
@@ -24,67 +41,95 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def init_bot():
-	"""Initialize the bot by creating the base folder (if not already present) with an initilized
-	index.json and an empty links.json
-	"""
-	if not os.path.isdir(base):
-		os.mkdir(base)
+  """Initialize the bot by creating a link storage database with a search term index table."""
+  with con:
+    cur.execute("CREATE TABLE IF NOT EXISTS search_terms(search_term TEXT)")
+    cur.execute("CREATE TABLE IF NOT EXISTS links(url TEXT, date TEXT, title TEXT, views INTEGER)")
 
-	app = youtube_search.VideoCrawler(base)
-	app.search_term_index.refresh()
-	with open(links_storage, "w") as f:
-		json.dump([], f)
+  refresh_index()
+
+def refresh_index():
+  """Refill the index table from dict.txt. Drops previous data."""
+  with codecs.open("./dict.txt", encoding="utf-8") as f:
+    search_terms = f.read().splitlines()
+    search_terms = [(item,) for item in search_terms]  # format as list of tuples to be able to pass to executemany
+
+  with con:
+    cur.execute("DELETE FROM search_terms")
+    cur.executemany("INSERT INTO search_terms VALUES (?)", search_terms)
 
 def parse_new_links(n):
-  """Use the crawler to search for zero view videos and store them in links.json.
+  """Use the crawler to search for zero view videos and store them in the database.
   Args:
     n (int): number of items to parse: n/2 search terms are picked from the index and n/2 are randomly generated
   """
-  # get current contents of links.json
-  with open(links_storage) as f:
-    link_data = json.load(f)
-
-  app = youtube_search.VideoCrawler(base)
+  app = youtube_search.VideoCrawler()
   try:
-    search_term_slice = app.search_term_index.get_slice(n/2)
+    search_term_slice = get_search_term_slice(n/2)
     randomized = app.generate_random_search_terms(n/2, 2)
     search_terms = search_term_slice + randomized
-    new_links = app.zero_search(search_terms)
+    zeros = app.zero_search(search_terms)
 
-    if new_links:
-      # Add new links to old and store back to file.
-      link_data.extend(new_links)
-      with open(links_storage, "w") as f:
-        json.dump(link_data, f)
-
-      logger.info("Added {} new links to links.json".format(len(new_links)))
+    # Add new links to the database
+    if zeros:
+      links = [ (item["url"], item["date"], item["title"], item["views"]) for item in zeros ]
+      with con:
+        cur.executemany("INSERT INTO links VALUES (?, ?, ?, ?)", links)
+        logger.info("Added {} new links to the database".format(len(zeros)))
 
     else:
       logger.info("No new links detected")
 
   # refresh (but don't do any parsing), on empty index
-  except youtube_search.IndexEmptyException as err:
-    logger.info("index.json is empty, refreshing")
-    app.search_term_index.refresh()
+  except IndexEmptyException as err:
+    logger.info("search term index is empty, refreshing")
+    refresh_index()
 
-def parse_if_low(threshold, n):
-  """Wrapper to parse_new_links: parses for new links only if there are < threshold
-  links currently stored.
-  Args:
-    threshold (int): minimum number of links required to parse for new links
-    n (int): number of search terms to parse
-  """
-  with open(links_storage) as f:
-    link_data = json.load(f)
+def get_search_term_slice(n):
+  """Return a random sample of n search terms from the database."""
+  with con:
+    cur.execute("SELECT search_term FROM search_terms ORDER BY RANDOM() LIMIT {}".format(n))
+    search_terms = cur.fetchall()
 
-  if len(link_data) < threshold:
-    parse_new_links(n)
-  else:
-    logger.info("{} links left in links.json, no action taken".format(len(link_data)))
+    # raise an error if there are no search terms left in the index
+    if not search_terms:
+      raise IndexEmptyException()
+
+    # delete the items from the database
+    cur.executemany("DELETE FROM search_terms WHERE search_term = ?", search_terms)
+
+  return [item[0] for item in search_terms]  # return a flattened list of the search terms
+
+def get_link():
+  """Choose a random link form the database."""
+  browser = youtube_search.VideoBrowser()
+  with con:
+    # keep popping items from the database until we find one which still has no views or
+    # until the table is empty
+    views = 1
+    while views:
+      cur.execute("SELECT rowid, * FROM links ORDER BY RANDOM() LIMIT 1")
+      row = cur.fetchone()
+
+      if not row:
+        raise IndexError("No links in the database")
+
+      rowid = row[0]
+      url = row[1]
+
+      # requery the view count from YouTube
+      vid_id = url.split("?v=")[1]  # get the id from the url
+      stats = browser.get_stats(vid_id)
+      views = stats["views"]
+
+      # delete the item from the table regardless of the current view count
+      cur.execute("DELETE FROM links WHERE rowid = ?", (rowid,))
+
+    return (row[1], row[2], row[3], row[4])
 
 def tweet():
-  """Attempts to tweet the topmost item from links.json. Prints an error message if
-  there are nothing to tweet.
+  """Attempts to tweet the topmost item from the links database. Prints an error message if
+  there is nothing to tweet.
   """
   with open("./keys.json") as f:
     keys = json.load(f)
@@ -95,54 +140,50 @@ def tweet():
   OAUTH_SECRET = keys["TWITTER_OAUTH_SECRET"]
   twitter = twython.Twython(API_KEY, API_SECRET, OAUTH_TOKEN, OAUTH_SECRET)
 
-  with open(links_storage) as f:
-    link_data = json.load(f)
-
   try:
-    link = link_data.pop(0)
-    url = link["url"]
+    link = get_link()
+    url = link[0]
+    date = link[1]
+    title = link[2]
+    views = link[3]
 
-    # Format a message to tweet:
-    # for long tweets, cut the title to 75 characters
-    # url = 23 characters (after Twitter's own link shortening, see https://support.twitter.com/articles/78124)
-    # date = 20
-    # views ~ 8
-    # linebreaks = 3
-    # => title: first 70 characters + "..."
-    title = link["title"]
+    """
+    Format a message to tweet:
+    for long tweets, cut the title to 75 characters
+    url = 23 characters (after Twitter's own link shortening, see https://support.twitter.com/articles/78124)
+    date = 20
+    views ~ 8
+    linebreaks = 3
+    => title: first 70 characters + "..."
+    """
     if len(title) > 75:
       title = title[:72] + "..."
 
-    msg = "{}\n{}\nuploaded: {}\nviews: {}".format(title, url, link["date"], link["views"])
+    msg = u"{}\n{}\nuploaded: {}\nviews: {}".format(title, url, date, views)
 
     # Encode the message for network I/O
     msg = msg.encode("utf8")
     twitter.update_status(status = msg)
-
-    # Write the rest of link_data back to file.
-    with open(links_storage, "w") as f:
-      json.dump(link_data, f)
-
-  # something went wrong with tweeting
+  except IndexError as err:
+    logger.error("links table is empty, nothing to tweet")
   except twython.exceptions.TwythonError as err:
-    logger.info(err)
+    logger.error(err)
     print err
 
-  # couldn't pop from links.json
-  except IndexError as err:
-    msg = "links.json is empty"
-    logger.info(msg)
-    print msg
-
 def get_bot_status():
-    """Get the number of links currently stored in links.json and index.json."""
-    with open(links_storage) as f:
-      link_data = json.load(f)
+    """Get the number of links and search terms in the database"""
+    with con:
+      cur.execute("SELECT COUNT(*) FROM links")
+      nlinks = cur.fetchone()[0]
 
-    with open(base + "index.json") as f:
-      index = json.load(f)
+      cur.execute("SELECT COUNT(*) FROM search_terms")
+      nindex = cur.fetchone()[0]
 
-    return {"links": len(link_data), "index": len(index)}
+    return {"links": nlinks, "index": nindex}
+
+
+class IndexEmptyException:
+  pass
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description = "Search for and tweet Youtube videos with no or little views.")
@@ -159,7 +200,8 @@ if __name__ == "__main__":
     tweet()
 
   elif args.parse:
-    parse_if_low(10, args.parse)
+    logging.info("Parsing new links")
+    parse_new_links(args.parse)
 
   elif args.stats:
     stats = get_bot_status()
