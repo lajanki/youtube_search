@@ -220,10 +220,10 @@ class VideoBrowser:
       response = request.execute()
       try:
         request = self.youtube.search().list_next(request, response)
-      except UnicodeEncodeError:
+      except UnicodeEncodeError:  # TODO: find out what's going on here
         print request
         print response
-        raise
+        return None
 
       # If the current response doesn't contain any items,
       # return the previous response (possibly None).

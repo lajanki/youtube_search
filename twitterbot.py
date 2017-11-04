@@ -194,7 +194,13 @@ if __name__ == "__main__":
     parser.add_argument("--stats", help = "Prints number of items left in links.json and index.json", action = "store_true")
     parser.add_argument("--init", help = "Initialize the bot by creating a file structure in bot-data/", action = "store_true")
     args = parser.parse_args()
-    bot = Bot("bot-data/links.db")
+
+    # create a bot-data directory if it doesn't exist
+    base = "bot-data"
+    if not os.path.isdir(base):
+        os.mkdir(base)
+    path = os.path.join(base, "links.db")
+    bot = Bot(path)
 
     if args.init:
         bot.create_tables()
