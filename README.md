@@ -2,11 +2,11 @@
 A script for finding YouTube videos with no views.
 
 The Google YouTube Data API comes with certain restrictions that prevents from directly searching for content with no views. Namely:
-  1. one cannot use view count as a search parameter, and
+  1. view count is not a valid search parameter, and
   2. any search query will return at most 500 results.
 
-This script uses a brute force type approach by performing the search to a
-bunch of search terms and records the results with zero views.
+This script uses a brute force type approach by performing a search on a
+bunch of search terms and stores the results with zero views to an sqlite database.
 
 The search terms are read from two source files:
   * dict.txt, containing > 71 000 individual words. Words read here are processed in groups of n files at a time.
@@ -14,7 +14,7 @@ The search terms are read from two source files:
 
 There are two ways to run this script:
   * ```main.py``` for listing the results on stdout. This is mainly for demonstration purposes. Requires Google API key, see below
-  * ```twitterbot.py``` poviding the option to tweet detected zero view items. This also requires Twitter keys.
+  * ```twitterbot.py``` poviding the option to tweet detected zero view items. Requires Google and Twitter API keys.
 
 
 ## Requirements
@@ -33,24 +33,25 @@ Both keys should be stored in ```keys.json```.
 
 
 ## Usage
-The main script main.py supports the following switches
+Run
 ```
---init      Create a search term index file by processing dict.txt.
---parse n   Parse n search terms from the index for zero views and list valid item on screen.
+python main.py --search n
 ```
+to perform a sample search on n random search terms. Any detected zero view videos are listed on screen.
 Due to the restrictions listed above you may find that you need to do the parsing with values n>100 to find any valid results.
 
-Similarly,  to use the bot, first initialize it by
+Similarly,  to use the bot, first initialize it with
 ```
 python twitterbot.py --init
 ```
-This creates a new folder and initializes it with a search term index and a link storage files. To parse for zero view items, run
+This creates a database with an index of search terms and a table for zero view links. To parse for zero view items, run
 ```
 python twitterbot.py --parse n
 ```
-This takes n/2 random words from the index, performs a search and stores results with no views to links.json. Another n/2 search terms are randomly generated from combining two common words in common.txt.
+This takes n/2 random words from the index, generates another n/2 from ```common.txt``` and performs a search. Valid links are stored to the database.
 
-To tweet the topmost result in the link storage, run
+To tweet a randomly chosen link from the database, run
 ```
 python twitterbot.py --tweet
 ```
+Before tweeting the link, an additional check takes palce to ensure the video hasn't gained any views since it was inserted into the database.
