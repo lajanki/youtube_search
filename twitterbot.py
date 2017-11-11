@@ -16,24 +16,15 @@ import youtube_search
 
 
 
-
-# silence verbose http logging done by requests via urllib3
-requests_log = logging.getLogger("requests")
-requests_log.addHandler(logging.NullHandler())
-requests_log.propagate = False
-
-urlib_log = logging.getLogger("urllib3")
-urlib_log.addHandler(logging.NullHandler())
-urlib_log.propagate = False
-
-# setup actual loggig
 logging.basicConfig(
 	filename = "bot.log",
-	format = "%(asctime)s %(message)s",
+	format = "%(asctime)s %(levelname)s: %(message)s",
 	datefmt = "%d.%m.%Y %H:%M:%S",
 	level = logging.INFO
 )
 logger = logging.getLogger(__name__)
+logging.getLogger("googleapiclient").setLevel(logging.ERROR) # silence verbose http logging done by YouTube connection
+
 
 class Bot:
     def __init__(self, path):
@@ -163,6 +154,7 @@ class Bot:
 
             # Encode the message for network I/O
             msg = msg.encode("utf8")
+            logger.info(msg)
             twitter.update_status(status = msg)
 
         except IndexError as err:
@@ -209,7 +201,7 @@ if __name__ == "__main__":
         bot.tweet()
 
     elif args.parse:
-        logging.info("Parsing new links")
+        logger.info("Parsing new links")
         bot.parse_new_links(args.parse)
 
     elif args.stats:

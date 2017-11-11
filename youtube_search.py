@@ -221,6 +221,8 @@ class VideoBrowser:
       try:
         request = self.youtube.search().list_next(request, response)
       except UnicodeEncodeError:  # TODO: find out what's going on here
+        with open("./list_next_error.json", "w") as f:
+          json.dump(response, f, indent = 2, separators=(',', ': '))
         print request
         print response
         return None
@@ -248,9 +250,9 @@ class VideoBrowser:
       viewcount = int(stats["items"][0]["statistics"]["viewCount"])
     # occasionally viewCount is not among the response, ignore these
     except KeyError as err:
-      print "ERROR: couldn't find key 'view count' from the response."
-      print "Received the following statistics:" # for now, print the received data for further study
-      pprint.pprint(stats)
+      #print "ERROR: couldn't find key 'view count' from the response."
+      #print "Received the following statistics:" # for now, print the received data for further study
+      #pprint.pprint(stats)
       viewcount = 100 # set a high viewcount to denote non zero view item
 
     date = stats["items"][0]["snippet"]["publishedAt"]
