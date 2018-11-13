@@ -15,10 +15,7 @@ import youtube_search
 
 def main(args):
     """Parse for new videos or initialize the index."""
-    app = youtube_search.VideoCrawler()
-
     if args.search:
-
         # choose a random sample of search terms
         with codecs.open("./dict.txt", encoding="utf-8") as f:
             search_terms = f.read().splitlines()
@@ -31,23 +28,22 @@ def main(args):
         zeros = crawler.zero_search(search_terms)
 
         if not zeros:
-            print "No results found"
+            print("No results found")
 
         else:
-            print "Found the following results:"
+            print("Found the following results:")
             for result in zeros:
-                print "title:", result["title"]
-                print "url:", result["url"]
-                print "views:", result["views"]
-                print "uploaded:", result["date"]
-                print
-
-
+                print("title:", result["title"])
+                print("url:", result["url"])
+                print("views:", result["views"])
+                print("uploaded:", result["date"])
+                print()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description = "Search for YouTube videos with no views.")
-    parser.add_argument("--search", help = "Search using n random search terms from dict.txt and common.txt", metavar = "n", type = int)
+    parser = argparse.ArgumentParser(description="Search for YouTube videos with no views.")
+    parser.add_argument(
+        "--search", help="Search using n random search terms from dict.txt and common.txt", metavar="n", type=int)
     args = parser.parse_args()
 
     main(args)

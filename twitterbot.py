@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
+A Twitter bot for posting zero view YouTube links.
 Uses youtube_search.py to parse for links to zero view items and tweets them one at a time.
 """
 
@@ -12,21 +13,23 @@ import argparse
 import logging
 import sqlite3
 import codecs
+from collections import namedtuple
+
 import youtube_search
 
 
-
 logging.basicConfig(
-	filename = "bot.log",
-	format = "%(asctime)s %(levelname)s: %(message)s",
-	datefmt = "%d.%m.%Y %H:%M:%S",
-	level = logging.INFO
+    filename="bot.log",
+    format="%(asctime)s %(levelname)s: %(message)s",
+    datefmt="%d.%m.%Y %H:%M:%S",
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-logging.getLogger("googleapiclient").setLevel(logging.ERROR) # silence verbose http logging done by YouTube connection
+# silence verbose http logging done by YouTube connection
+logging.getLogger("googleapiclient").setLevel(logging.ERROR)
 
 
-class Bot:
+class Bot(object):
     def __init__(self, path):
         self.con = sqlite3.connect(path)
         self.cur = self.con.cursor()
@@ -35,7 +38,8 @@ class Bot:
         """Initialize the bot by creating a link storage database with a search term index table."""
         with self.con:
             self.cur.execute("CREATE TABLE IF NOT EXISTS search_terms(search_term TEXT)")
-            self.cur.execute("CREATE TABLE IF NOT EXISTS links(url TEXT, date TEXT, title TEXT, views INTEGER)")
+            self.cur.execute(
+                "CREATE TABLE IF NOT EXISTS links(url TEXT, date TEXT, title TEXT, views INTEGER)")
 
         self.refresh_index()
 
@@ -43,53 +47,56 @@ class Bot:
         """Refill the index table from dict.txt. Drops previous data."""
         with codecs.open("./dict.txt", encoding="utf-8") as f:
             search_terms = f.read().splitlines()
-            search_terms = [(item,) for item in search_terms]  # format as list of tuples to be able to pass to executemany
+            # format as list of tuples to be able to pass to executemany
+            search_terms = [(item,) for item in search_terms]
 
         with self.con:
             self.cur.execute("DELETE FROM search_terms")
             self.cur.executemany("INSERT INTO search_terms VALUES (?)", search_terms)
 
     def parse_new_links(self, n):
-        """Use the crawler to search for zero view videos and store them in the database.
+        """Use the crawler to search for links to zero view videos and store them in the database.
         Args:
             n (int): number of items to parse: n/2 search terms are picked from the index and n/2 are randomly generated
         """
         crawler = youtube_search.VideoCrawler()
         try:
-            search_term_slice = self.get_search_term_slice(n/2)
+            search_term_slice = self.get_random_search_term_slice(n/2)
             randomized = crawler.generate_random_search_terms(n/2, 2)
             search_terms = search_term_slice + randomized
             zeros = crawler.zero_search(search_terms)
 
             # Add new links to the database
             if zeros:
-                links = [ (item["url"], item["date"], item["title"], item["views"]) for item in zeros ]
+                links = [(item["url"], item["date"], item["title"], item["views"])
+                         for item in zeros]
                 with self.con:
                     self.cur.executemany("INSERT INTO links VALUES (?, ?, ?, ?)", links)
                     logger.info("Added {} new links to the database".format(len(zeros)))
 
             else:
-              logger.info("No new links detected")
+                logger.info("No new links detected")
 
         # refresh (but don't do any parsing), on empty index
-        except IndexEmptyException as err:
+        except IndexEmptyException:
             logger.info("search term index is empty, refreshing")
             self.refresh_index()
 
-    def get_search_term_slice(self, n):
+    def get_random_search_term_slice(self, n):
         """Return a random sample of n search terms from the database."""
         with self.con:
-            self.cur.execute("SELECT search_term FROM search_terms ORDER BY RANDOM() LIMIT {}".format(n))
+            self.cur.execute(
+                "SELECT search_term FROM search_terms ORDER BY RANDOM() LIMIT {}".format(n))
             search_terms = self.cur.fetchall()
 
             # raise an error if there are no search terms left in the index
             if not search_terms:
                 raise IndexEmptyException()
 
-            # delete the items from the database
+            # delete the items from the database index
             self.cur.executemany("DELETE FROM search_terms WHERE search_term = ?", search_terms)
 
-        return [item[0] for item in search_terms]  # return a flattened list of the search terms
+        return [item[0] for item in search_terms]
 
     def get_link(self):
         """Choose a random link form the database."""
@@ -116,14 +123,16 @@ class Bot:
                 # delete the item from the table regardless of the current view count
                 self.cur.execute("DELETE FROM links WHERE rowid = ?", (rowid,))
 
-            return (row[1], row[2], row[3], row[4])
+            YTVideoResult = namedtuple(
+                "YTVideoResult", ["title", "url", "view_count", "upload_date"])
+            return YTVideoResult(row[3], row[1], row[3], row[4])
 
     def tweet(self):
         """Attempts to tweet the topmost item from the links database. Prints an error message if
         there is nothing to tweet.
         """
         with open("./keys.json") as f:
-          keys = json.load(f)
+            keys = json.load(f)
 
         API_KEY = keys["TWITTER_API_KEY"]
         API_SECRET = keys["TWITTER_API_SECRET"]
@@ -155,13 +164,13 @@ class Bot:
             # Encode the message for network I/O
             msg = msg.encode("utf8")
             logger.info(msg)
-            twitter.update_status(status = msg)
+            twitter.update_status(status=msg)
 
         except IndexError as err:
             logger.error("links table is empty, nothing to tweet")
         except twython.exceptions.TwythonError as err:
             logger.error(err)
-            print err
+            print(err)
 
     def get_status(self):
         """Get the number of links and search terms in the database"""
@@ -180,11 +189,16 @@ class IndexEmptyException:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description = "Search for and tweet Youtube videos with no or little views.")
-    parser.add_argument("--tweet", help = "Tweet the next result stored in links.json.", action = "store_true")
-    parser.add_argument("--parse", help = "Parse n next search terms from search_terms.json for zero view items and store them to links.json.", metavar = "n", type = int)
-    parser.add_argument("--stats", help = "Prints number of items left in links.json and index.json", action = "store_true")
-    parser.add_argument("--init", help = "Initialize the bot by creating a file structure in bot-data/", action = "store_true")
+    parser = argparse.ArgumentParser(
+        description="Search for and tweet Youtube videos with no or little views.")
+    parser.add_argument(
+        "--tweet", help="Tweet the next result stored in links.json.", action="store_true")
+    parser.add_argument(
+        "--parse", help="Parse n next search terms from search_terms.json for zero view items and store them to links.json.", metavar="n", type=int)
+    parser.add_argument(
+        "--stats", help="Prints number of items left in links.json and index.json", action="store_true")
+    parser.add_argument(
+        "--init", help="Initialize the bot by creating a file structure in bot-data/", action="store_true")
     args = parser.parse_args()
 
     # create a bot-data directory if it doesn't exist
@@ -206,4 +220,5 @@ if __name__ == "__main__":
 
     elif args.stats:
         stats = bot.get_status()
-        print "{} links in links.json and {} search terms in index.json".format(stats["links"], stats["index"])
+        print("{} links in links.json and {} search terms in index.json".format(
+            stats["links"], stats["index"]))

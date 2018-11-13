@@ -22,245 +22,244 @@ force YouTube query on them and records links for items with no views.
 
 import sys
 import json
-import time
 import random
-import pprint
 import datetime
+from collections import namedtuple
 
 from apiclient.discovery import build
-from apiclient.errors import HttpError
 
 
+class VideoCrawler(object):
+    """Looks for videos with no views."""
 
-class VideoCrawler:
-  """Looks for videos with no views."""
+    def __init__(self):
+        self.youtube_browser = VideoBrowser()
 
-  def __init__(self):
-    self.youtube_browser = VideoBrowser()
+    def zero_search(self, search_terms):
+        """Performs a search for a list of search terms and records items with no views.
+        Args:
+          search_terms (list): a list of search terms to perform the query
+        Return:
+          a list of {title, url, views, published} dictionaries
+        """
+        zero_views = []
 
-  def zero_search(self, search_terms):
-    """Performs a search for a list of search terms and records items with no views.
-    Args:
-      search_terms (list): a list of search terms to perform the query
-    Return:
-      a list of {title, url, views, published} dictionaries
-    """
-    zero_views = []
+        # perform a youtube query for each search term
+        for search_term in search_terms:
+            search_term = search_term.encode("utf8")  # encode before network I/O
+            print(search_term + "\r"),  # print the search term and a return carriage without a newline
+            sys.stdout.flush()  # force-write the above to stdout
 
-    # perform a youtube query for each search term
-    for search_term in search_terms:
-      search_term = search_term.encode("utf8") # encode before network I/O
-      print search_term + "\r",  # print the search term and a return carriage without a newline
-      sys.stdout.flush()  # force-write the above to stdout
+            # generates a new timewindow for each searchterm!
+            query_params = self.format_search_params(search_term)
+            # result is either None or a dict containing a key for list of videos
+            result_page = self.youtube_browser.query_youtube(**query_params)
+            if result_page:
+                stats = self.parse_youtube_response(result_page)
+                zero_views.extend(stats)
 
-      query_params = self.format_search_params(search_term)  # generates a new timewindow for each searchterm!
-      result_page = self.youtube_browser.query_youtube(**query_params) # result is either None or a dict containing a key for list of videos
-      if result_page:
-        stats = self.parse_youtube_response(result_page)
-        zero_views.extend(stats)
+                # Print a checkmark if this search term provided at least one result.
+                if stats:
+                    print(search_term + " ✓")  # rewrite search term with a checkmark
+                # found results, but has views
+                else:
+                    print(" " * 50 + "\r")  # write an empty line to clear the printed search term
 
-        # Print a checkmark if this search term provided at least one result.
-        if stats:
-          print search_term + " ✓"  # rewrite search term with a checkmark
-        # found results, but has views
+            # no results
+            else:
+                print(" " * 50 + "\r")
+
+        return zero_views
+
+    def parse_youtube_response(self, response):
+        """Parse a response page from the API for videos with no views.
+        Arg:
+          response (dict): the API response to a search query
+        Return:
+          a list of items with no views. Each item is a dict of {title, url, views, date}
+        """
+        # Create namedtuple class for storing valid YouTube links.
+        YTVideoResult = namedtuple('YTVideoResult', ["title", "url", "views", "date"])
+        valid = []
+        for item in reversed(response["items"]):  # loop backwards so item with least views is first
+            vid_id = item["id"]["videoId"]
+            stats = self.youtube_browser.get_stats(vid_id)
+            views = stats["views"]
+            live = item["snippet"]["liveBroadcastContent"]
+            url = "https://www.youtube.com/watch?v=".format(vid_id)
+
+            # return as soon as we find a video which has views
+            if views:
+                return []  # return a list so the caller stays happy
+
+            # skip videos with live broadcast content: these often lead to missing videos with a "content not available" notification
+            if live == "none":
+                title = item["snippet"]["title"]
+                view_count = stats["views"]
+                upload_date = stats["upload_date"]
+
+                data = YTVideoResult(title, url, view_count, upload_date)
+                valid.append(data)
+
+        return valid
+
+    def generate_random_search_terms(self, n, word_count=1):
+        """Generate n random search terms by combining words from common.txt.
+        Arg:
+          n (int): number of search terms to generate
+          word_count (int): number of words each search term should consist of
+        Return:
+          a list of search terms
+        """
+        with open("./common.txt") as f:
+            lines = [line.rstrip("\n") for line in f]
+
+        search_terms = []
+        for i in range(n):
+            sample = random.sample(lines, word_count)
+            search_term = " ".join(sample)
+
+            if search_term not in search_terms:
+                search_terms.append(search_term)
+
+        return search_terms
+
+    def format_search_params(self, q, before=None):
+        """Format a dict of query parameters to pass to the youtube query API. The parameters include
+        the search term and the 'before' and 'after' values. 'after' is set to a year backwards from 'before' while
+        'before' is either given as a paramter or randomly set to somewhere between a year ago and 1.1.2006.
+        Args:
+          q (string): the search term to use
+          before (date): a date object. If not set, a random timestamp from at least a year ago will be generated.
+        Return:
+          a dict of {q, before, after}
+        """
+        if before:
+            after = self.year_since(before)
+
+        # generate a timewindow
         else:
-          print " " * 50 + "\r",  # write an empty line to clear the printed search term
+            before = self.choose_random_date()
+            after = self.year_since(before)
 
-      # no results
-      else:
-        print " " * 50 + "\r",
+        iso_before = self.date_to_isoformat(before)
+        iso_after = self.date_to_isoformat(after)
+        search_params = {"q": q, "before": iso_before, "after": iso_after}
 
-    return zero_views
+        return search_params
 
-  def parse_youtube_response(self, response):
-    """Parse a response page from the API for videos with no views.
-    Arg:
-      response (dict): the API response to a search query
-    Return:
-      a list of items with no views. Each item is a dict of {title, url, views, date}
-    """
-    valid = []
-    for item in reversed(response["items"]):  # loop backwards so item with least views is first
-      vid_id = item["id"]["videoId"]
-      stats = self.youtube_browser.get_stats(vid_id)
-      views = stats["views"]
-      live = item["snippet"]["liveBroadcastContent"]
-      url = "https://www.youtube.com/watch?v=" + vid_id
+    def choose_random_date(self):
+        """Randomly choose a date between a year ago and 1.1.2006, (Yotube was founded on 14.2.2005).
+        Return:
+          a date object
+        """
+        # compute number of days since 1.1.2006
+        delta = datetime.date.today() - datetime.date(2006, 1, 1)
+        delta = delta.days
 
-      # return as soon as we find a video which has views
-      if views:
-        return [] # return a list so the caller stays happy
+        # Randomly choose a day offset from 1.1.2006
+        offset = random.randint(0, delta - 365)
+        random_date = datetime.date(2006, 1, 1) + datetime.timedelta(days=offset)
+        return random_date
 
-      # skip videos with live broadcast content: these often lead to missing videos with a "content not available" notification
-      if live == "none":
-        title = item["snippet"]["title"]
-        view_count = stats["views"]
-        upload_date = stats["upload_date"]
+    def year_since(self, start):
+        """Compute the date 365 days before the given date.
+        Arg:
+        start (date): a date object
+        Return:
+          a datetime
+        """
+        return start - datetime.timedelta(days=365)
 
-        # valid zero-view item: wrap as a dict and store
-        data = {"title": title, "url": url, "views": view_count, "date": upload_date}
-        valid.append(data)
-
-    return valid
-
-  def generate_random_search_terms(self, n, word_count = 1):
-    """Generate n random search terms by combining words from common.txt.
-    Arg:
-      n (int): number of search terms to generate
-      word_count (int): number of words each search term should consist of
-    Return:
-      a list of search terms
-    """
-    with open("./common.txt") as f:
-      lines = [line.rstrip("\n") for line in f]
-
-    search_terms = []
-    for i in range(n):
-      sample = random.sample(lines, word_count)
-      search_term = " ".join(sample)
-
-      if search_term not in search_terms:
-        search_terms.append(search_term)
-
-    return search_terms
-
-  def format_search_params(self, q, before = None):
-    """Format a dict of query parameters to pass to the youtube query API. The parameters include
-    the search term and the 'before' and 'after' values. 'after' is set to a year backwards from 'before' while
-    'before' is either given as a paramter or randomly set to somewhere between a year ago and 1.1.2006.
-    Args:
-      q (string): the search term to use
-      before (date): a date object. If not set, a random timestamp from at least a year ago will be generated.
-    Return:
-      a dict of {q, before, after}
-    """
-    if before:
-      after = self.year_since(before)
-
-    # generate a timewindow
-    else:
-      before = self.choose_random_date()
-      after = self.year_since(before)
-
-    iso_before = self.date_to_isoformat(before)
-    iso_after = self.date_to_isoformat(after)
-    search_params = {"q": q, "before": iso_before, "after": iso_after}
-
-    return search_params
-
-  def choose_random_date(self):
-    """Randomly choose a date between a year ago and 1.1.2006, (Yotube was founded on 14.2.2005).
-    Return:
-      a date object
-    """
-    # compute number of days since 1.1.2006
-    delta = datetime.date.today() - datetime.date(2006, 1, 1)
-    delta = delta.days
-
-    # Randomly choose a day offset from 1.1.2006
-    offset = random.randint(0, delta - 365)
-    random_date = datetime.date(2006, 1, 1) + datetime.timedelta(days = offset)
-    return random_date
-
-  def year_since(self, start):
-    """Compute the date 365 days before the given date.
-    Arg:
-    start (date): a date object
-    Return:
-      a datetime
-    """
-    return start - datetime.timedelta(days = 365)
-
-  def date_to_isoformat(self, date):
-    """Format a date object as RFC 3339 timestamp with 0s as time values.
-    Arg:
-        date (date): a date object
-    Return:
-      a formatted string
-    """
-    return date.isoformat() + "T00:00:00Z"
+    def date_to_isoformat(self, date):
+        """Format a date object as RFC 3339 timestamp with 0s as time values.
+        Arg:
+            date (date): a date object
+        Return:
+          a formatted string
+        """
+        return date.isoformat() + "T00:00:00Z"
 
 
-class VideoBrowser:
-  """Contains functions for searching YouTube."""
+class VideoBrowser(object):
+    """Contains functions for searching YouTube."""
 
-  def __init__(self):
-    with open("./keys.json") as f:
-      keys = json.load(f)
+    def __init__(self):
+        with open("./keys.json") as f:
+            keys = json.load(f)
 
-    GOOGLE_API_KEY = keys["GOOGLE_API_KEY"]
-    YOUTUBE_API_SERVICE_NAME = "youtube"
-    YOUTUBE_API_VERSION = "v3"
-    self.youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey = GOOGLE_API_KEY)
+        GOOGLE_API_KEY = keys["GOOGLE_API_KEY"]
+        YOUTUBE_API_SERVICE_NAME = "youtube"
+        YOUTUBE_API_VERSION = "v3"
+        self.youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
+                             developerKey=GOOGLE_API_KEY)
 
-  def query_youtube(self, **kwargs):
-    """Perform a single YouTube query using given search parameters. Order results by viewcount and
-    return the final page of the result set.
-    Arg:
-      kwargs: parameters to pass to youtube.search().list()
-    Return:
-      the final page of the results as dicts of items returned by YouTube API
-      or None if no results.
-    """
-    request = self.youtube.search().list(
-      q = kwargs["q"],
-      part = "id,snippet",
-      publishedBefore = kwargs["before"],
-      publishedAfter = kwargs["after"],
-      relevanceLanguage = "en",
-      maxResults = 50,
-      order = "viewCount",
-      type = "video"
-    )
+    def query_youtube(self, **kwargs):
+        """Perform a single YouTube query using given search parameters. Order results by viewcount and
+        return the final page of the result set.
+        Arg:
+          kwargs: parameters to pass to youtube.search().list()
+        Return:
+          the final page of the results as dicts of items returned by YouTube API
+          or None if no results.
+        """
+        request = self.youtube.search().list(
+            q=kwargs["q"],
+            part="id,snippet",
+            publishedBefore=kwargs["before"],
+            publishedAfter=kwargs["after"],
+            relevanceLanguage="en",
+            maxResults=50,
+            order="viewCount",
+            type="video"
+        )
 
-    # fetch the next page until no more pages or no items in current page.
-    response = None
-    while request is not None:
-      prev_response = response
-      response = request.execute()
-      try:
-        request = self.youtube.search().list_next(request, response)
-      except UnicodeEncodeError:  # TODO: find out what's going on here
-        with open("./list_next_error.json", "w") as f:
-          json.dump(response, f, indent = 2, separators=(',', ': '))
-        print request
-        print response
-        return None
+        # fetch the next page until no more pages or no items in current page.
+        response = None
+        while request is not None:
+            prev_response = response
+            response = request.execute()
+            try:
+                request = self.youtube.search().list_next(request, response)
+            except UnicodeEncodeError:  # TODO: find out what's going on here
+                with open("./list_next_error.json", "w") as f:
+                    json.dump(response, f, indent=2, separators=(',', ': '))
+                print(request)
+                print(response)
+                return None
 
-      # If the current response doesn't contain any items,
-      # return the previous response (possibly None).
-      if not response["items"]:
-        return prev_response
+            # If the current response doesn't contain any items,
+            # return the previous response (possibly None).
+            if not response["items"]:
+                return prev_response
 
-    return response
+        return response
 
-  def get_stats(self, vid_id):
-    """Get view count and upload date for a given video.
-    Arg:
-      vid_id (string): a Youtube video id
-    Return:
-      a dict of the view count and upload date
-    """
-    stats = self.youtube.videos().list(
-      part = "statistics,snippet",
-      id = vid_id
-    ).execute()
+    def get_stats(self, vid_id):
+        """Get view count and upload date for a given video.
+        Arg:
+          vid_id (string): a Youtube video id
+        Return:
+          a dict of the view count and upload date
+        """
+        stats = self.youtube.videos().list(
+            part="statistics,snippet",
+            id=vid_id
+        ).execute()
 
-    try:
-      viewcount = int(stats["items"][0]["statistics"]["viewCount"])
-    # occasionally viewCount is not among the response, ignore these
-    except KeyError as err:
-      #print "ERROR: couldn't find key 'view count' from the response."
-      #print "Received the following statistics:" # for now, print the received data for further study
-      #pprint.pprint(stats)
-      viewcount = 100 # set a high viewcount to denote non zero view item
+        # View count is not always among the response, ignore these by manaully
+        # settings a high view count value.
+        try:
+            viewcount = int(stats["items"][0]["statistics"]["viewCount"])
+        except KeyError:
+            viewcount = 100
 
-    date = stats["items"][0]["snippet"]["publishedAt"]
+        date = stats["items"][0]["snippet"]["publishedAt"]
 
-    # date is in ISO format (YYYY-MM-DD), reformat to DD.MM.YYYY
-    d = date[8:10]
-    m = date[5:7]
-    y = date[0:4]
-    date = d + "." + m + "." + y
+        # date is in ISO format (YYYY-MM-DD), reformat to DD.MM.YYYY
+        d = date[8:10]
+        m = date[5:7]
+        y = date[0:4]
+        date = d + "." + m + "." + y
 
-    return {"views": viewcount, "upload_date": date }
+        return {"views": viewcount, "upload_date": date}
