@@ -20,11 +20,12 @@ common words. The words are read in groups of 50, the script performs a brute
 force YouTube query on them and records links for items with no views.
 """
 
-import sys
 import json
 import random
 import datetime
+import argparse
 from collections import namedtuple
+import tqdm
 
 from apiclient.discovery import build
 
@@ -32,27 +33,29 @@ from apiclient.discovery import build
 class VideoCrawler(object):
     """Looks for videos with no views."""
 
-    def __init__(self, keyfile, q=None):
-        self.q = q
-        self.keyfile = keyfile
+    def __init__(self, search_terms=None):
+        self.search_terms = search_terms
+        self.n = 0
         self.client = self.create_client()
 
-    def run(self):
+    def run(self, n, length):
         """Main entrypoint to the crawler. Generate a list of search terms and
         run the search over them.
         """
-        search_terms = self.generate_search_terms(50, 1)
-        links = self.zero_search(search_terms)
+        self.search_terms = self.generate_search_terms(n, length)
+        self.n = n
+        links = self.zero_search(self.search_terms)
 
         for link in links:
             print(link.title)
+            print(link.channel)
             print(link.url)
             print(link.date)
             print()
 
     def create_client(self):
         """Create a youtube client."""
-        with open(self.keyfile) as f:
+        with open("./keys.json") as f:
             data = json.load(f)
 
         GOOGLE_API_KEY = data["GOOGLE_API_KEY"]
@@ -72,10 +75,11 @@ class VideoCrawler(object):
         """
         zero_views = []
 
-        # perform a youtube query for each search term
-        for search_term in search_terms:
-            print(search_term + "\r"),  # print the search term and a return carriage without a newline
-            sys.stdout.flush()  # force-write the above to stdout
+        # Perform a youtube query for each search term.
+        # need total steps for bar to update when used with a generator
+        for search_term in tqdm.tqdm(search_terms, total=self.n):
+            # print the search term and a return carriage without a newline
+            tqdm.tqdm.write(search_term, end="\r"),
 
             query_params = self.format_search_params(search_term)
             response = self.query_youtube(**query_params)
@@ -85,14 +89,15 @@ class VideoCrawler(object):
 
                 # print a checkmark if this search term provided at least one valid result
                 if stats:
-                    print(search_term + " ✓")  # rewrite search term with a checkmark
+                    tqdm.tqdm.write(search_term + " ✓")  # rewrite search term with a checkmark
                 # found results, but has views
                 else:
-                    print(" " * 50 + "\r")  # write an empty line to clear the printed search term
+                    # write an empty line to clear the printed search term
+                    tqdm.tqdm.write(" " * 50, end="\r")
 
             # no results
             else:
-                print(" " * 50 + "\r")
+                tqdm.tqdm.write(" " * 50, end="\r")
 
         return zero_views
 
@@ -137,6 +142,40 @@ class VideoCrawler(object):
 
         return response
 
+    def parse_response(self, response):
+        """Parse a response page from the API for videos with no views.
+        Arg:
+          response (dict): the API response to a search query
+        Return:
+          a list of items with no views. Each item is a namedtuple of (title, url, views, date)
+        """
+        # Create namedtuple class for storing valid YouTube links.
+        YTVideoResult = namedtuple('YTVideoResult', ["title", "channel", "url", "views", "date"])
+        valid = []
+        for item in reversed(response["items"]):  # loop backwards so item with least views is first
+            vid_id = item["id"]["videoId"]
+            stats = self.get_stats(vid_id)
+            views = stats["views"]
+            live = item["snippet"]["liveBroadcastContent"]
+            url = "https://www.youtube.com/watch?v={}".format(vid_id)
+
+            # return as soon as we find a video which has views
+            if views:
+                return []  # return a list so the caller stays happy
+
+            # skip videos with live broadcast content: these often lead to missing videos with a "content not available" notification
+            if live == "none":
+                title = item["snippet"]["title"]
+                view_count = stats["views"]
+                upload_date = stats["upload_date"]
+                channel = stats["channel"]
+
+                data = YTVideoResult(title=title, channel=channel, url=url,
+                                     views=view_count, date=upload_date)
+                valid.append(data)
+
+        return valid
+
     def get_stats(self, vid_id):
         """Get view count and upload date for a given video.
         Arg:
@@ -157,6 +196,7 @@ class VideoCrawler(object):
             viewcount = 100
 
         date = stats["items"][0]["snippet"]["publishedAt"]
+        channel_id = stats["items"][0]["snippet"]["channelId"]
 
         # date is in ISO format (YYYY-MM-DD), reformat to DD.MM.YYYY
         d = date[8:10]
@@ -164,39 +204,7 @@ class VideoCrawler(object):
         y = date[0:4]
         date = d + "." + m + "." + y
 
-        return {"views": viewcount, "upload_date": date}
-
-    def parse_response(self, response):
-        """Parse a response page from the API for videos with no views.
-        Arg:
-          response (dict): the API response to a search query
-        Return:
-          a list of items with no views. Each item is a dict of {title, url, views, date}
-        """
-        # Create namedtuple class for storing valid YouTube links.
-        YTVideoResult = namedtuple('YTVideoResult', ["title", "url", "views", "date"])
-        valid = []
-        for item in reversed(response["items"]):  # loop backwards so item with least views is first
-            vid_id = item["id"]["videoId"]
-            stats = self.get_stats(vid_id)
-            views = stats["views"]
-            live = item["snippet"]["liveBroadcastContent"]
-            url = "https://www.youtube.com/watch?v={}".format(vid_id)
-
-            # return as soon as we find a video which has views
-            if views:
-                return []  # return a list so the caller stays happy
-
-            # skip videos with live broadcast content: these often lead to missing videos with a "content not available" notification
-            if live == "none":
-                title = item["snippet"]["title"]
-                view_count = stats["views"]
-                upload_date = stats["upload_date"]
-
-                data = YTVideoResult(title=title, url=url, views=view_count, date=upload_date)
-                valid.append(data)
-
-        return valid
+        return {"views": viewcount, "upload_date": date, "channel": channel_id}
 
     def generate_search_terms(self, n, size=1):
         """A generator function for generating random search terms from common.txt
@@ -271,3 +279,14 @@ class VideoCrawler(object):
           a formatted string
         """
         return date.isoformat() + "T00:00:00Z"
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Performs sample YouTube searches.")
+    parser.add_argument("n", help="Number of search terms to use", type=int)
+    parser.add_argument("length", help="Word lenght of each search term", type=int)
+    args = parser.parse_args()
+
+    app = VideoCrawler()
+    app.run(args.n, args.length)
