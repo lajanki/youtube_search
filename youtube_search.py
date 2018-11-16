@@ -38,11 +38,11 @@ class VideoCrawler(object):
         self.n = 0
         self.client = self.create_client()
 
-    def run(self, n, length):
+    def run(self, n):
         """Main entrypoint to the crawler. Generate a list of search terms and
         run the search over them.
         """
-        self.search_terms = self.generate_search_terms(n, length)
+        self.search_terms = self.generate_search_terms(n)
         self.n = n
         links = self.zero_search(self.search_terms)
 
@@ -58,11 +58,16 @@ class VideoCrawler(object):
         with open("./keys.json") as f:
             data = json.load(f)
 
-        GOOGLE_API_KEY = data["GOOGLE_API_KEY"]
-        YOUTUBE_API_SERVICE_NAME = "youtube"
-        YOUTUBE_API_VERSION = "v3"
-        client = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
-                       developerKey=GOOGLE_API_KEY)
+        try:
+            GOOGLE_API_KEY = data["GOOGLE_API_KEY"]
+            YOUTUBE_API_SERVICE_NAME = "youtube"
+            YOUTUBE_API_VERSION = "v3"
+            client = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
+                           developerKey=GOOGLE_API_KEY)
+        except KeyError:
+            print("Missing Google API key in keys.json")
+            raise()
+
         return client
 
     def zero_search(self, search_terms):
@@ -84,20 +89,11 @@ class VideoCrawler(object):
             query_params = self.format_search_params(search_term)
             response = self.query_youtube(**query_params)
             if response:
-                stats = self.parse_response(response)
-                zero_views.extend(stats)
-
-                # print a checkmark if this search term provided at least one valid result
-                if stats:
+                video_results = self.parse_response(response)
+                if video_results:
+                    # write a checkmark to denote a succesful search
                     tqdm.tqdm.write(search_term + " ✓")  # rewrite search term with a checkmark
-                # found results, but has views
-                else:
-                    # write an empty line to clear the printed search term
-                    tqdm.tqdm.write(" " * 50, end="\r")
-
-            # no results
-            else:
-                tqdm.tqdm.write(" " * 50, end="\r")
+                    zero_views.extend(video_results)
 
         return zero_views
 
@@ -154,37 +150,35 @@ class VideoCrawler(object):
         valid = []
         for item in reversed(response["items"]):  # loop backwards so item with least views is first
             vid_id = item["id"]["videoId"]
-            stats = self.get_stats(vid_id)
-            views = stats["views"]
-            live = item["snippet"]["liveBroadcastContent"]
+            title = item["snippet"]["title"]
+            publish_date = item["snippet"]["publishedAt"]
+            channel_title = item["snippet"]["channelTitle"]
             url = "https://www.youtube.com/watch?v={}".format(vid_id)
+
+            views = self.get_views(vid_id)
 
             # return as soon as we find a video which has views
             if views:
-                return []  # return a list so the caller stays happy
+                return
 
             # skip videos with live broadcast content: these often lead to missing videos with a "content not available" notification
+            live = item["snippet"]["liveBroadcastContent"]
             if live == "none":
-                title = item["snippet"]["title"]
-                view_count = stats["views"]
-                upload_date = stats["upload_date"]
-                channel = stats["channel"]
-
-                data = YTVideoResult(title=title, channel=channel, url=url,
-                                     views=view_count, date=upload_date)
+                data = YTVideoResult(title=title, channel=channel_title, url=url,
+                                     views=views, date=publish_date)
                 valid.append(data)
 
         return valid
 
-    def get_stats(self, vid_id):
-        """Get view count and upload date for a given video.
+    def get_views(self, vid_id):
+        """Get view count for a given video from the API.
         Arg:
           vid_id (string): a Youtube video id
         Return:
           a dict of the view count and upload date
         """
         stats = self.client.videos().list(
-            part="statistics,snippet",
+            part="statistics",
             id=vid_id
         ).execute()
 
@@ -195,32 +189,20 @@ class VideoCrawler(object):
         except KeyError:
             viewcount = 100
 
-        date = stats["items"][0]["snippet"]["publishedAt"]
-        channel_id = stats["items"][0]["snippet"]["channelId"]
+        return viewcount
 
-        # date is in ISO format (YYYY-MM-DD), reformat to DD.MM.YYYY
-        d = date[8:10]
-        m = date[5:7]
-        y = date[0:4]
-        date = d + "." + m + "." + y
-
-        return {"views": viewcount, "upload_date": date, "channel": channel_id}
-
-    def generate_search_terms(self, n, size=1):
+    def generate_search_terms(self, n):
         """A generator function for generating random search terms from common.txt
         Arg:
           n (int): number of search terms to generate
-          size (int): number of words each search term should consist of
         Return:
           a list of search terms
         """
         with open("./common.txt") as f:
             lines = [line.rstrip("\n") for line in f]
 
-        for i in range(n):
-            sample = random.sample(lines, size)
-            search_term = " ".join(sample)
-            yield search_term
+        sample = random.sample(lines, n)
+        return sample
 
     def format_search_params(self, q, before=None):
         """Format a dict of query parameters to pass to the youtube query API. The parameters include
@@ -235,12 +217,12 @@ class VideoCrawler(object):
         # if a date argument was provided, generate a starting point from year earlier
         # TODO input validation
         if before:
-            after = self.year_since(before)
+            after = self.compute_earlier_date(before, 180)
 
         # generate a timewindow
         else:
             before = self.choose_random_date()
-            after = self.year_since(before)
+            after = self.compute_earlier_date(before, 180)
 
         iso_before = self.date_to_isoformat(before)
         iso_after = self.date_to_isoformat(after)
@@ -262,14 +244,16 @@ class VideoCrawler(object):
         random_date = datetime.date(2006, 1, 1) + datetime.timedelta(days=offset)
         return random_date
 
-    def year_since(self, start):
-        """Compute the date 365 days before the given date.
-        Arg:
-        start (date): a date object
+    def compute_earlier_date(self, start, days):
+        """Given a date and a number of days, compute the date matchin which occured
+        that many days eralier.
+        Args:
+            start (date): a date object
+            days (int): number of days earlier the output date should be
         Return:
           a datetime
         """
-        return start - datetime.timedelta(days=365)
+        return start - datetime.timedelta(days=days)
 
     def date_to_isoformat(self, date):
         """Format a date object as RFC 3339 timestamp with 0s as time values.
@@ -285,8 +269,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Performs sample YouTube searches.")
     parser.add_argument("n", help="Number of search terms to use", type=int)
-    parser.add_argument("length", help="Word lenght of each search term", type=int)
     args = parser.parse_args()
 
     app = VideoCrawler()
-    app.run(args.n, args.length)
+    app.run(args.n)
