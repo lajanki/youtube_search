@@ -36,7 +36,7 @@ class VideoCrawler(object):
     def __init__(self, search_terms=None):
         self.search_terms = search_terms
         self.n = 0
-        self.client = self.create_client()
+        self.client = VideoCrawler.create_client()
 
     def run(self, n):
         """Main entrypoint to the crawler. Generate a list of search terms and
@@ -53,7 +53,8 @@ class VideoCrawler(object):
             print(link.date)
             print()
 
-    def create_client(self):
+    @staticmethod
+    def create_client():
         """Create a youtube client."""
         with open("./keys.json") as f:
             data = json.load(f)
@@ -65,8 +66,7 @@ class VideoCrawler(object):
             client = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
                            developerKey=GOOGLE_API_KEY)
         except KeyError:
-            print("Missing Google API key in keys.json")
-            raise()
+            raise KeyError("Missing Google API key in keys.json")
 
         return client
 
@@ -159,7 +159,7 @@ class VideoCrawler(object):
 
             # return as soon as we find a video which has views
             if views:
-                return
+                return valid
 
             # skip videos with live broadcast content: these often lead to missing videos with a "content not available" notification
             live = item["snippet"]["liveBroadcastContent"]
@@ -207,7 +207,7 @@ class VideoCrawler(object):
     def format_search_params(self, q, before=None):
         """Format a dict of query parameters to pass to the youtube query API. The parameters include
         the search term and the 'before' and 'after' values. 'after' is set to a year backwards from 'before' while
-        'before' is either given as a paramter or randomly set to somewhere between a year ago and 1.1.2006.
+        'before' is either given as a parameter or randomly set to somewhere between a year ago and 1.1.2006.
         Args:
           q (string): the search term to use
           before (date): a date object. If not set, a random timestamp from at least a year ago will be generated.
