@@ -1,132 +1,217 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-import unittest
-import os
+
 import datetime
+import unittest
+import json
+from unittest.mock import patch, mock_open
 
-
-# change working directory for relative paths in youtube_search to work as well as
-# to be able to import the main module
-os.chdir("..")
 import youtube_search
 
 
-class VideoBrowserTestCase(unittest.TestCase):
-	"""Does the browser work correctly?"""
-
-	@classmethod
-	def setUpClass(self):
-		self.browser = youtube_search.VideoBrowser()
-
-	def testStatValueTypes(self):
-		"""Does get_stats return a dict with correct types?"""
-		vid_id = "YjkwdEXoeZI"
-		stats = self.browser.get_stats(vid_id)
-		self.assertIsInstance(stats["views"], int)
-		self.assertIsInstance(stats["upload_date"], unicode)
-
-	def testStatDateFormat(self):
-		"""Is the upload_date in the stats of the form DD.MM.YYYY?"""
-		vid_id = "YjkwdEXoeZI"
-		stats = self.browser.get_stats(vid_id)
-
-		upload_date = stats["upload_date"]
-		split = upload_date.split(".")
-		self.assertEqual(len(split), 3)
-
-		self.assertEqual(len(split[0]), 2)
-		self.assertEqual(len(split[1]), 2)
-		self.assertEqual(len(split[2]), 4)
-
-	def testQueryReturnsNoneIfNoResults(self):
-		"""Is the response to a YouTube None for nonsense query?"""
-		before = "2011-08-30T00:00:00Z"
-		after = "2011-08-30T00:00:00Z"
-		q = "SomeWeirdAndLongCamelCasedQueryStringThatProbablyDoesntReturnAnythingSuperInteresting.TheresProbablyABetterWayToTestThingsLikeThis.Mocks?"
-		response = self.browser.query_youtube(q=q, before=before, after=after)
-		self.assertIs(response, None, "Received an actual response to a nonsense query")
-
-	def testQueryContainsItemsKey(self):
-		"""Is there an "items" key in the response."""
-		before = "2017-08-30T00:00:00Z"
-		after = "2011-08-30T00:00:00Z"
-		q = "best"
-		response = self.browser.query_youtube(q=q, before=before, after=after)
-		self.assertIn("items", response.keys(), "Response doesn't contain 'items' as key")
-
-
 class VideoCrawlerTestCase(unittest.TestCase):
-	"""Test cases for crawling videos."""
+    """Test cases for searching zero view videos."""
 
-	@classmethod
-	def setUpClass(self):
-		self.crawler = youtube_search.VideoCrawler()
+    @patch("youtube_search.VideoCrawler.create_client")
+    def setUp(self, mock_create_client):
+        self.crawler = youtube_search.VideoCrawler()
+        self.search_response_json_string = """{
+         "kind": "youtube#searchListResponse",
+         "etag": "XI7nbFXulYBIpL0ayR_gDh3eu1k/VGqBSVauZBhlTNwqV9NaLOyo2-U",
+         "nextPageToken": "CAMQAA",
+         "regionCode": "FI",
+         "pageInfo": {
+          "totalResults": 1000000,
+          "resultsPerPage": 3
+         },
+         "items": [
+          {
+           "kind": "youtube#searchResult",
+           "etag": "XI7nbFXulYBIpL0ayR_gDh3eu1k/134tLvMh5ow5iBeBllpGwtxpjoY",
+           "id": {
+            "kind": "youtube#video",
+            "videoId": "EQ1HKCYJM5U"
+           },
+           "snippet": {
+            "publishedAt": "2009-08-20T16:04:07.000Z",
+            "channelId": "UCCj956IF62FbT7Gouszaj9w",
+            "title": "Funny Talking Animals - Walk On The Wild Side - Episode Three Preview - BBC One",
+            "description": "SUBSCRIBE for more BBC highlights: https://bit.ly/2IXqEIn http://www.bbc.co.uk/comedy Walk On The Wild Side is a brand new comedy series that seeks to ...",
+            "thumbnails": {
+             "default": {
+              "url": "https://i.ytimg.com/vi/EQ1HKCYJM5U/default.jpg",
+              "width": 120,
+              "height": 90
+             },
+             "medium": {
+              "url": "https://i.ytimg.com/vi/EQ1HKCYJM5U/mqdefault.jpg",
+              "width": 320,
+              "height": 180
+             },
+             "high": {
+              "url": "https://i.ytimg.com/vi/EQ1HKCYJM5U/hqdefault.jpg",
+              "width": 480,
+              "height": 360
+             }
+            },
+            "channelTitle": "BBC",
+            "liveBroadcastContent": "none"
+           }
+          },
+          {
+           "kind": "youtube#searchResult",
+           "etag": "XI7nbFXulYBIpL0ayR_gDh3eu1k/gndGQ3TuSgooLxMWqXUNH42n9Gs",
+           "id": {
+            "kind": "youtube#video",
+            "videoId": "JMfPnJm-L1E"
+           },
+           "snippet": {
+            "publishedAt": "2017-01-19T13:00:00.000Z",
+            "channelId": "UChGJGhZ9SOOHvBB0Y4DOO_w",
+            "title": "Amusement Park for Kids Rides! Meeting Disney Characters + Animal Kingdom Hotel + Toy Hunt Shopping",
+            "description": "Amusement Park for Kids Rides at Disney World Part 3. We also meet Disney Characters like Goofy, Mickey Mouse, Winnie the Pooh and Friends like Piglet, ...",
+            "thumbnails": {
+             "default": {
+              "url": "https://i.ytimg.com/vi/JMfPnJm-L1E/default.jpg",
+              "width": 120,
+              "height": 90
+             },
+             "medium": {
+              "url": "https://i.ytimg.com/vi/JMfPnJm-L1E/mqdefault.jpg",
+              "width": 320,
+              "height": 180
+             },
+             "high": {
+              "url": "https://i.ytimg.com/vi/JMfPnJm-L1E/hqdefault.jpg",
+              "width": 480,
+              "height": 360
+             }
+            },
+            "channelTitle": "Ryan ToysReview",
+            "liveBroadcastContent": "none"
+           }
+          },
+          {
+           "kind": "youtube#searchResult",
+           "etag": "XI7nbFXulYBIpL0ayR_gDh3eu1k/2BOFfv8H3D1DNKegJ8_aj4HN_vc",
+           "id": {
+            "kind": "youtube#video",
+            "videoId": "dW5plLrebUg"
+           },
+           "snippet": {
+            "publishedAt": "2013-02-21T20:51:06.000Z",
+            "channelId": "UCIxiXRZqUv9zYVM80cz6ZnA",
+            "title": "Expedition Everest front seat on-ride HD POV Disney's Animal Kingdom",
+            "description": "With incredible themeing & thrills galore, could this be Disney's best roller coaster? Taking six years to design & construct at an estimated total cost of $100 ...",
+            "thumbnails": {
+             "default": {
+              "url": "https://i.ytimg.com/vi/dW5plLrebUg/default.jpg",
+              "width": 120,
+              "height": 90
+             },
+             "medium": {
+              "url": "https://i.ytimg.com/vi/dW5plLrebUg/mqdefault.jpg",
+              "width": 320,
+              "height": 180
+             },
+             "high": {
+              "url": "https://i.ytimg.com/vi/dW5plLrebUg/hqdefault.jpg",
+              "width": 480,
+              "height": 360
+             }
+            },
+            "channelTitle": "CoasterForce",
+            "liveBroadcastContent": "none"
+           }
+          }
+         ]
+        }
+        """
+        self.search_response = json.loads(self.search_response_json_string)
 
-	def testSearchParamFormattingWithoutDate(self):
-		"""Does format_search_params return the expected data when called with the default
-		value of None as the before date?
-		"""
-		q = "peppery"
-		res = self.crawler.format_search_params(q)
+    def test_create_client_raises_error_on_missing_key(self):
+        """Does create_client raise an error on missing key?"""
+        empty_keys = json.dumps({"foo": "bar"})
+        with patch('builtins.open', mock_open(read_data=empty_keys), create=True):
+            self.assertRaises(KeyError, youtube_search.VideoCrawler.create_client)
 
-		before = res["before"][:10]  # date part of the string
-		before = datetime.datetime.strptime(before, "%Y-%m-%d")
-		after = res["after"][:10]
-		after = datetime.datetime.strptime(after, "%Y-%m-%d")
+    @patch("youtube_search.VideoCrawler.get_views")
+    def test_parse_response_skips_item_with_views(self, mock_get_views):
+        """Does parse_response skip items with > 0 views detected?"""
+        mock_get_views.side_effect = [False, False, True]  # mark the last item as having > 0 views
 
-		delta = before - after
-		self.assertEqual(res["q"], q, "Unexpected query term")
-		self.assertEqual(delta.days, 365, "Unexpected difference between dates")
+        zero_views = self.crawler.parse_response(self.search_response)
+        self.assertEqual(len(zero_views), 2)
 
-	def testSearchParamFormattingWithtDate(self):
-		"""Does format_search_params return the expected data when called with a before date?"""
-		q = "peppery"
-		before = datetime.date(2015, 4, 16)
-		res = self.crawler.format_search_params(q, before)
+    @patch("youtube_search.VideoCrawler.get_views")
+    def test_parse_response_skips_live_broadcast_items(self, mock_get_views):
+        """Does parse_response skip items with a liveBroadcastContent status?"""
+        mock_get_views.side_effect = [False, False, False]
+        self.search_response["items"][2]["snippet"]["liveBroadcastContent"] = "true"
 
-		before = res["before"][:10]  # date part of the string
-		before = datetime.datetime.strptime(before, "%Y-%m-%d")
-		after = res["after"][:10]
-		after = datetime.datetime.strptime(after, "%Y-%m-%d")
+        zero_views = self.crawler.parse_response(self.search_response)
+        self.assertEqual(len(zero_views), 2)
 
-		delta = before - after
-		self.assertEqual(res["q"], q, "Unexpected query term not")
-		self.assertEqual(delta.days, 365, "Unexpected difference between dates")
+    def test_search_parameter_formatting_without_date(self):
+        """Does format_search_params return the expected data when called with the default
+        value of None as the before date?
+        """
+        res = self.crawler.format_search_params("peppery")
+
+        before = res["before"][:10]  # date part of the string
+        before = datetime.datetime.strptime(before, "%Y-%m-%d")
+        after = res["after"][:10]
+        after = datetime.datetime.strptime(after, "%Y-%m-%d")
+
+        delta = before - after
+        self.assertEqual(res["q"], "peppery")
+        self.assertEqual(delta.days, 180)
+
+    def test_search_parameter_formatting_with_date(self):
+        """Does format_search_params return the expected data when called with a before date?"""
+        before = datetime.date(2015, 4, 16)
+        res = self.crawler.format_search_params("peppery", before)
+
+        before = res["before"][:10]  # date part of the string
+        before = datetime.datetime.strptime(before, "%Y-%m-%d")
+        after = res["after"][:10]
+        after = datetime.datetime.strptime(after, "%Y-%m-%d")
+
+        delta = before - after
+        self.assertEqual(res["q"], "peppery")
+        self.assertEqual(delta.days, 180)
+
+    def test_randomized_date_range_is_valid(self):
+        """Is the date created by choose_random_date between 1.1.2006 and year ago?"""
+        random_date = self.crawler.choose_random_date()
+        year_ago = datetime.date.today() - datetime.timedelta(days=365)
+        start_date = datetime.date(2006, 1, 1)
+
+        self.assertTrue(random_date <= year_ago)
+        self.assertTrue(random_date >= start_date)
+
+    def test_compute_earlier_date(self):
+        """Does compute_earlier_date return a date corresponding to the parameters?."""
+        start1 = datetime.date(2014, 10, 1)
+        end1 = datetime.date(2014, 9, 21)
+        res1 = self.crawler.compute_earlier_date(start1, 10)
+        self.assertEqual(res1, end1)
+
+        start2 = datetime.date(2017, 10, 30)
+        end2 = datetime.date(2017, 5, 3)
+        res2 = self.crawler.compute_earlier_date(start2, 180)
+        self.assertEqual(res2, end2)
+
+    def test_date_to_isoformat_properly_formats_date(self):
+        """Is the string returned by date_to_isoformat a valid RFC 3339 string?"""
+        today = datetime.date.today()
+        formatted = self.crawler.date_to_isoformat(today)
+
+        self.assertTrue(formatted.endswith("T00:00:00Z"))
 
 
-class DateCreationTestCase(unittest.TestCase):
-	"""Test cases for date creation functions."""
-
-	@classmethod
-	def setUpClass(self):
-		self.crawler = youtube_search.VideoCrawler()
-
-	def testRandomizedDateRangeValid(self):
-		"""Is the date created by choose_random_date between 1.1.2006 and year ago?"""
-		random_date = self.crawler.choose_random_date()
-		year_ago = datetime.date.today() - datetime.timedelta(days = 365)
-		after = datetime.date(2006, 1, 1)
-
-		self.assertTrue(random_date <= year_ago, "randomized date is less than a year_ago")
-		self.assertTrue(random_date >= after, "randomized date is before 1.1.2006")
-
-	def testRandomizedDateIsADate(self):
-		"""Does choose_random_date return a date object?"""
-		random_date = self.crawler.choose_random_date()
-		self.assertIsInstance(random_date, datetime.date, "choose_random_date returns an invalid type")
-
-	def testYearSinceIsYearAgo(self):
-		"""Does year_since return a date 365 before a given date."""
-		today = datetime.date.today()
-		year_ago = self.crawler.year_since(today)
-
-		delta = today - year_ago
-		self.assertEqual(delta.days, 365, "year_since is not 365 days before a date")
-
-	def testDateToISOFormatIsProperlyFormatted(self):
-		"""Is the string returned by date_to_isoformat a valid RFC 3339 string?"""
-		today = datetime.date.today()
-		formatted = self.crawler.date_to_isoformat(today)
-
-		self.assertTrue(formatted.endswith("T00:00:00Z"), "returned date is not RFC 3339 formatted")
+if __name__ == "__main__":
+    """Create test suites from both classes and run tests."""
+    suite = unittest.TestLoader().loadTestsFromTestCase(VideoCrawlerTestCase)
+    unittest.TextTestRunner(verbosity=2).run(suite)
