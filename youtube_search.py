@@ -24,7 +24,6 @@ import json
 import random
 import datetime
 import argparse
-from collections import namedtuple
 import tqdm
 
 from apiclient.discovery import build
@@ -145,8 +144,6 @@ class VideoCrawler(object):
         Return:
           a list of items with no views. Each item is a namedtuple of (title, url, views, date)
         """
-        # Create namedtuple class for storing valid YouTube links.
-        YTVideoResult = namedtuple('YTVideoResult', ["title", "channel", "url", "views", "date"])
         valid = []
         for item in reversed(response["items"]):  # loop backwards so item with least views is first
             vid_id = item["id"]["videoId"]
@@ -164,9 +161,9 @@ class VideoCrawler(object):
             # skip videos with live broadcast content: these often lead to missing videos with a "content not available" notification
             live = item["snippet"]["liveBroadcastContent"]
             if live == "none":
-                data = YTVideoResult(title=title, channel=channel_title, url=url,
-                                     views=views, date=publish_date)
-                valid.append(data)
+                link = VideoResult(title=title, channel=channel_title, url=url,
+                                   views=views, publish_date=publish_date)
+                valid.append(link)
 
         return valid
 
@@ -263,6 +260,17 @@ class VideoCrawler(object):
           a formatted string
         """
         return date.isoformat() + "T00:00:00Z"
+
+
+class VideoResult(object):
+    """A wrapper for detected zero view items."""
+
+    def __init__(self, title, url, views, publish_date, channel=None):
+        self.title = title
+        self.channel = channel
+        self.url = url
+        self.views = views
+        self.publish_date = publish_date
 
 
 if __name__ == "__main__":
