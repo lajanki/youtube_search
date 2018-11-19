@@ -13,7 +13,6 @@ import argparse
 import logging
 import sqlite3
 import codecs
-from collections import namedtuple
 
 import youtube_search
 
@@ -31,121 +30,77 @@ logging.getLogger("googleapiclient").setLevel(logging.ERROR)
 
 class Bot(object):
     def __init__(self, path):
-        self.con = sqlite3.connect(path)
-        self.cur = self.con.cursor()
+        self.crawler = youtube_search.VideoCrawler()
+        self.twitter_client = Bot.create_client()
+        self.storage_writer = StorageWriter(path)
 
-    def create_tables(self):
-        """Initialize the bot by creating a link storage database with a search term index table."""
-        with self.con:
-            self.cur.execute("CREATE TABLE IF NOT EXISTS search_terms(search_term TEXT)")
-            self.cur.execute(
-                "CREATE TABLE IF NOT EXISTS links(url TEXT, date TEXT, title TEXT, views INTEGER)")
+    @staticmethod
+    def create_client():
+        with open("./keys.json") as f:
+            keys = json.load(f)
 
-        self.refresh_index()
+        try:
+            API_KEY = keys["TWITTER_API_KEY"]
+            API_SECRET = keys["TWITTER_API_SECRET"]
+            OAUTH_TOKEN = keys["TWITTER_OAUTH_TOKEN"]
+            OAUTH_SECRET = keys["TWITTER_OAUTH_SECRET"]
+            twitter = twython.Twython(API_KEY, API_SECRET, OAUTH_TOKEN, OAUTH_SECRET)
+        except KeyError:
+            raise KeyError("Missing Twitter API key in keys.json")
 
-    def refresh_index(self):
-        """Refill the index table from dict.txt. Drops previous data."""
-        with codecs.open("./dict.txt", encoding="utf-8") as f:
-            search_terms = f.read().splitlines()
-            # format as list of tuples to be able to pass to executemany
-            search_terms = [(item,) for item in search_terms]
+        return twitter
 
-        with self.con:
-            self.cur.execute("DELETE FROM search_terms")
-            self.cur.executemany("INSERT INTO search_terms VALUES (?)", search_terms)
+    def setup(self):
+        """Initialize the bot by creating a database with tables for search terms and valid links found."""
+        self.storage_writer.create_tables()
+        self.storage_writer.refresh_index()
 
     def parse_new_links(self, n):
-        """Use the crawler to search for links to zero view videos and store them in the database.
+        """Perform a YouTube search for zerp view items and store results to the database. Search terms are read
+        from the search term index table.
         Args:
-            n (int): number of items to parse: n/2 search terms are picked from the index and n/2 are randomly generated
+            n (int): number of search terms to use.
         """
-        crawler = youtube_search.VideoCrawler()
         try:
-            search_term_slice = self.get_random_search_term_slice(n/2)
-            randomized = crawler.generate_random_search_terms(n/2, 2)
-            search_terms = search_term_slice + randomized
-            zeros = crawler.zero_search(search_terms)
+            search_terms = self.storage_writer.fetch_random_search_term_batch(n)
+            zeros = self.crawler.zero_search(search_terms)
 
             # Add new links to the database
             if zeros:
-                links = [(item["url"], item["date"], item["title"], item["views"])
+                links = [(item.url, item.date, item.title, item.views)
                          for item in zeros]
-                with self.con:
-                    self.cur.executemany("INSERT INTO links VALUES (?, ?, ?, ?)", links)
-                    logger.info("Added {} new links to the database".format(len(zeros)))
+                self.storage_writer.insert_links(links)
+                logger.info("Added {} new links to the database.".format(len(zeros)))
 
             else:
-                logger.info("No new links detected")
+                logger.info("No new links detected.")
 
         # refresh (but don't do any parsing), on empty index
         except IndexEmptyException:
-            logger.info("search term index is empty, refreshing")
-            self.refresh_index()
-
-    def get_random_search_term_slice(self, n):
-        """Return a random sample of n search terms from the database."""
-        with self.con:
-            self.cur.execute(
-                "SELECT search_term FROM search_terms ORDER BY RANDOM() LIMIT {}".format(n))
-            search_terms = self.cur.fetchall()
-
-            # raise an error if there are no search terms left in the index
-            if not search_terms:
-                raise IndexEmptyException()
-
-            # delete the items from the database index
-            self.cur.executemany("DELETE FROM search_terms WHERE search_term = ?", search_terms)
-
-        return [item[0] for item in search_terms]
+            logger.info("search term index is empty, refreshing.")
+            self.storage_writer.refresh_index()
 
     def get_link(self):
-        """Choose a random link form the database."""
-        browser = youtube_search.VideoBrowser()
-        with self.con:
-            # keep popping items from the database until we find one which still has no views or
-            # until the table is empty
-            views = 1
-            while views:
-                self.cur.execute("SELECT rowid, * FROM links ORDER BY RANDOM() LIMIT 1")
-                row = self.cur.fetchone()
+        """Fetch a link from the database to tweet. Since it's possible that the
+        selected YouTube video may have received views since it was stored to the database,
+        each item is rechedked for views are possibly discarded. In such case a new
+        link is picked.
+        TODO: check for empty link storage
+        """
+        views = 1
+        while views:
+            link = self.storage_writer.fetch_link()
+            vid_id = link.url.split("?v=")[1]  # get the id from the url
+            views = self.crawler.get_views(vid_id)
 
-                if not row:
-                    raise IndexError("No links in the database")
-
-                rowid = row[0]
-                url = row[1]
-
-                # requery the view count from YouTube
-                vid_id = url.split("?v=")[1]  # get the id from the url
-                stats = browser.get_stats(vid_id)
-                views = stats["views"]
-
-                # delete the item from the table regardless of the current view count
-                self.cur.execute("DELETE FROM links WHERE rowid = ?", (rowid,))
-
-            YTVideoResult = namedtuple(
-                "YTVideoResult", ["title", "url", "view_count", "upload_date"])
-            return YTVideoResult(row[3], row[1], row[3], row[4])
+        return link
 
     def tweet(self):
         """Attempts to tweet the topmost item from the links database. Prints an error message if
         there is nothing to tweet.
         """
-        with open("./keys.json") as f:
-            keys = json.load(f)
-
-        API_KEY = keys["TWITTER_API_KEY"]
-        API_SECRET = keys["TWITTER_API_SECRET"]
-        OAUTH_TOKEN = keys["TWITTER_OAUTH_TOKEN"]
-        OAUTH_SECRET = keys["TWITTER_OAUTH_SECRET"]
-        twitter = twython.Twython(API_KEY, API_SECRET, OAUTH_TOKEN, OAUTH_SECRET)
-
         try:
             link = self.get_link()
-            url = link[0]
-            date = link[1]
-            title = link[2]
-            views = link[3]
 
             """
             Format a message to tweet:
@@ -156,24 +111,106 @@ class Bot(object):
             linebreaks = 3
             => title: first 70 characters + "..."
             """
-            if len(title) > 75:
-                title = title[:72] + "..."
+            if len(link.title) > 75:
+                title = link.title[:72] + "..."
 
-            msg = u"{}\n{}\nuploaded: {}\nviews: {}".format(title, url, date, views)
+            msg = "{}\n{}\nuploaded: {}".format(
+                title, link.url, link.publish_date)
 
             # Encode the message for network I/O
             msg = msg.encode("utf8")
             logger.info(msg)
-            twitter.update_status(status=msg)
+            # self.twitter_client.update_status(status=msg)
+            print(msg)
 
-        except IndexError as err:
+        except IndexEmptyException as err:
             logger.error("links table is empty, nothing to tweet")
         except twython.exceptions.TwythonError as err:
             logger.error(err)
             print(err)
 
+
+class StorageWriter(object):
+    """A helper class for accessing the bot status database. The database contains 2 tables:
+        search_terms: a dynamic index of search terms. Search terms are read from chunks of n
+            words and the index is refresh once empty.
+        link: cache for valid zero view items detected. Links are tweeted until the cache is empty
+            and the next batch of search terms is processed.
+    """
+
+    def __init__(self, path):
+        self.con = sqlite3.connect(path)
+        self.cur = self.con.cursor()
+
+    def create_tables(self):
+        """Create database tables for the search term index and valid YouTube links detected.
+        The search term index is dynamic table used as a source for the search terms. It is initialized from
+        common.txt.
+        """
+        with self.con:
+            self.cur.execute("CREATE TABLE IF NOT EXISTS search_terms(search_term TEXT)")
+            self.cur.execute(
+                "CREATE TABLE IF NOT EXISTS links(url TEXT, date TEXT, title TEXT, views INTEGER)")
+
+    def refresh_index(self):
+        """Fill the search term index from common.txt. Drops previous data."""
+        with codecs.open("./common.txt", encoding="utf-8") as f:
+            search_terms = f.read().splitlines()
+            # format as list of tuples to be able to pass to executemany
+            search_terms = [(item,) for item in search_terms]
+
+        with self.con:
+            self.cur.execute("DELETE FROM search_terms")
+            self.cur.executemany("INSERT INTO search_terms VALUES (?)", search_terms)
+
+    def fetch_random_search_term_batch(self, n):
+        """Return a random sample of n search terms from the index. The selected
+        batch is removed from the index.
+        Args:
+            n (int): number of search terms to read
+        Return:
+            a list of search terms
+        """
+        with self.con:
+            self.cur.execute(
+                "SELECT search_term FROM search_terms ORDER BY RANDOM() LIMIT {}".format(n))
+            search_terms = self.cur.fetchall()
+
+            # raise an error if there are no search terms left in the index
+            if not search_terms:
+                raise IndexEmptyException()
+
+            # delete the items from the index
+            self.cur.executemany("DELETE FROM search_terms WHERE search_term = ?", search_terms)
+
+        return [item[0] for item in search_terms]
+
+    def insert_links(self, links):
+        """INSERT a list of links into the links table. Each link is a tuple of
+        (url, publish_date, title, viewcount)
+        """
+        with self.con:
+            self.cur.executemany("INSERT INTO links VALUES (?, ?, ?, ?)", links)
+
+    def fetch_link(self):
+        """Fetch a random link form the database. The selected item is removed from the table.
+        Return:
+            youtube_search.VideoResult instance matching the database row selected
+        """
+        with self.con:
+            self.cur.execute("SELECT rowid, * FROM links ORDER BY RANDOM() LIMIT 1")
+            row = self.cur.fetchone()
+
+            if not row:
+                raise IndexEmptyException("No links in the database")
+
+            rowid = row[0]
+            self.cur.execute("DELETE FROM links WHERE rowid = ?", (rowid,))
+
+        return youtube_search.VideoResult(title=row[2], url=row[0], views=row[3], publish_date=row[1])
+
     def get_status(self):
-        """Get the number of links and search terms in the database"""
+        """Get the number of links and search terms in the database."""
         with self.con:
             self.cur.execute("SELECT COUNT(*) FROM links")
             nlinks = self.cur.fetchone()[0]
@@ -181,10 +218,10 @@ class Bot(object):
             self.cur.execute("SELECT COUNT(*) FROM search_terms")
             nindex = self.cur.fetchone()[0]
 
-        return {"links": nlinks, "index": nindex}
+        return {"links": nlinks, "index_size": nindex}
 
 
-class IndexEmptyException:
+class IndexEmptyException(Exception):
     pass
 
 
@@ -209,7 +246,7 @@ if __name__ == "__main__":
     bot = Bot(path)
 
     if args.init:
-        bot.create_tables()
+        bot.setup()
 
     elif args.tweet:
         bot.tweet()
@@ -219,6 +256,6 @@ if __name__ == "__main__":
         bot.parse_new_links(args.parse)
 
     elif args.stats:
-        stats = bot.get_status()
+        stats = bot.storage_writer.get_status()
         print("{} links in links.json and {} search terms in index.json".format(
             stats["links"], stats["index"]))
