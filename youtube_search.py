@@ -272,6 +272,15 @@ class VideoResult(object):
         self.views = views
         self.publish_date = publish_date
 
+    def __repr__(self):
+        return "Title: {}, Channel: {}, url: {} views: {} publish_date: {}".format(
+            self.title,
+            self.channel,
+            self.url,
+            self.views,
+            self.publish_date
+        )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
