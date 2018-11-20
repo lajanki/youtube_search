@@ -67,7 +67,7 @@ class Bot(object):
 
             # Add new links to the database
             if zeros:
-                links = [(item.url, item.date, item.title, item.views)
+                links = [(item.url, item.publish_date, item.title, item.views)
                          for item in zeros]
                 self.storage_writer.insert_links(links)
                 logger.info("Added {} new links to the database.".format(len(zeros)))
@@ -178,7 +178,7 @@ class StorageWriter(object):
 
             # raise an error if there are no search terms left in the index
             if not search_terms:
-                raise IndexEmptyException()
+                raise IndexEmptyException("Search term index is empty")
 
             # delete the items from the index
             self.cur.executemany("DELETE FROM search_terms WHERE search_term = ?", search_terms)
@@ -207,7 +207,7 @@ class StorageWriter(object):
             rowid = row[0]
             self.cur.execute("DELETE FROM links WHERE rowid = ?", (rowid,))
 
-        return youtube_search.VideoResult(title=row[2], url=row[0], views=row[3], publish_date=row[1])
+        return youtube_search.VideoResult(title=row[3], url=row[1], views=row[4], publish_date=row[2])
 
     def get_status(self):
         """Get the number of links and search terms in the database."""
