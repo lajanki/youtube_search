@@ -75,7 +75,7 @@ class VideoCrawler(object):
         Args:
           search_terms (list): a list of search terms to perform the query
         Return:
-          a list of {title, url, views, published} dictionaries
+          a list of VideoResult instances build from the items with no response.
         """
         zero_views = []
 
@@ -142,7 +142,7 @@ class VideoCrawler(object):
         Arg:
           response (dict): the API response to a search query
         Return:
-          a list of items with no views. Each item is a namedtuple of (title, url, views, date)
+          a list of VideoResult instances build from the items with no response.
         """
         valid = []
         for item in reversed(response["items"]):  # loop backwards so item with least views is first
