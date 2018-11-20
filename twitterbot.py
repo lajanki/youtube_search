@@ -111,7 +111,8 @@ class Bot(object):
             linebreaks = 3
             => title: first 70 characters + "..."
             """
-            if len(link.title) > 75:
+            title = link.title
+            if len(title) > 75:
                 title = link.title[:72] + "..."
 
             msg = "{}\n{}\nuploaded: {}".format(
@@ -120,7 +121,7 @@ class Bot(object):
             # Encode the message for network I/O
             msg = msg.encode("utf8")
             logger.info(msg)
-            # self.twitter_client.update_status(status=msg)
+            self.twitter_client.update_status(status=msg)
             print(msg)
 
         except IndexEmptyException as err:
@@ -256,6 +257,6 @@ if __name__ == "__main__":
         bot.parse_new_links(args.parse)
 
     elif args.stats:
-        stats = bot.storage_writer.get_status()
+        status = bot.storage_writer.get_status()
         print("{} links in links.json and {} search terms in index.json".format(
-            stats["links"], stats["index"]))
+            status["links"], status["index_size"]))
