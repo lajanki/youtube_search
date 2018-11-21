@@ -50,23 +50,6 @@ class VideoCrawler(object):
             print(link.publish_date)
             print()
 
-    @staticmethod
-    def create_client():
-        """Create a youtube client."""
-        with open("./keys.json") as f:
-            data = json.load(f)
-
-        try:
-            GOOGLE_API_KEY = data["GOOGLE_API_KEY"]
-            YOUTUBE_API_SERVICE_NAME = "youtube"
-            YOUTUBE_API_VERSION = "v3"
-            client = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
-                           developerKey=GOOGLE_API_KEY)
-        except KeyError:
-            raise KeyError("Missing Google API key in keys.json")
-
-        return client
-
     def zero_search(self, search_terms):
         """Look for videos with no views. Perform a search on a list of search terms and
         record items with no views.
@@ -258,6 +241,50 @@ class VideoCrawler(object):
           a formatted string
         """
         return date.isoformat() + "T00:00:00Z"
+
+    @staticmethod
+    def filter_channel_links(links, n):
+        """Sample a list of YouTube links down to n links per channel.
+        It often happens that the same YouTube channel has a number of zero view
+        videos with similar content matching to the same keyword. This can lead
+        to unwanted cluttering when displaying the results.
+        Args:
+            links (list): a list of VideoResult instances
+            n (int): max number of videos allowed per channel
+        Returns:
+            a list of VideoResults
+        """
+        filtered = []
+        channels = [link.channel for link in links]
+
+        # pick n items from each channel
+        for channel in set(channels):
+            temp_list = [link for link in links if link.channel == channel]
+            try:
+                sample = random.sample(temp_list, n)
+                filtered.extend(sample)
+            # raised if there less than n items in the group
+            except ValueError:
+                filtered.extend(temp_list)
+
+        return filtered
+
+    @staticmethod
+    def create_client():
+        """Create a youtube client."""
+        with open("./keys.json") as f:
+            data = json.load(f)
+
+        try:
+            GOOGLE_API_KEY = data["GOOGLE_API_KEY"]
+            YOUTUBE_API_SERVICE_NAME = "youtube"
+            YOUTUBE_API_VERSION = "v3"
+            client = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
+                           developerKey=GOOGLE_API_KEY)
+        except KeyError:
+            raise KeyError("Missing Google API key in keys.json")
+
+        return client
 
 
 class VideoResult(object):

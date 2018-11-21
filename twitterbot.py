@@ -75,6 +75,7 @@ class Bot(object):
         try:
             search_terms = self.storage_writer.fetch_random_search_term_batch(n)
             zeros = self.crawler.zero_search(search_terms)
+            zeros = youtube_search.VideoCrawler.filter_channel_links(zeros, 2)
 
             # Add new links to the database
             if zeros:
@@ -266,18 +267,18 @@ if __name__ == "__main__":
         bot.tweet()
 
     elif args.parse:
-        logger.info("Parsing new links")
+        logger.info("Parsing new links.")
         bot.parse_new_links(args.parse)
 
     elif args.parse_if_low:
-        logger.info("Parsing new links")
+        logger.info("Parsing new links.")
         links_left = bot.storage_writer.get_status()["links"]
         if links_left >= args.parse_if_low[1]:
-            print("{} links left in the database, no parsing done")
+            print("{} links left in the database, no parsing done.".format(links_left))
         else:
             bot.parse_new_links(args.parse_if_low[0])
 
     elif args.stats:
         status = bot.storage_writer.get_status()
-        print("{} links in and {} search terms left in the database".format(
+        print("{} links in and {} search terms left in the database.".format(
             status["links"], status["index_size"]))
