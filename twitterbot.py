@@ -1,9 +1,20 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 """
 A Twitter bot for posting zero view YouTube links.
-Uses youtube_search.py to parse for links to zero view items and tweets them one at a time.
+Uses youtube_search.py to parse for zero view items and tweets them one at a time.
+Links to detected valid videos are stored to an sqlite3 database.
+
+The database also holds a dynamic index of search terms to use. Search terms are popped
+from the database as they are used and the table is reinitialized once it empties.
+
+The bot works by regularly running the following two tasks:
+ * parse for new links using the --parse switch, and
+ * tweet them using --tweet
+Both switches are intended to be scheduled via cron. These tasks are independent
+in that tweeting only works if there is a link in the database to tweet. Otherwise
+an error will be raised.
 """
 
 import os
@@ -82,10 +93,10 @@ class Bot(object):
 
     def get_link(self):
         """Fetch a link from the database to tweet. Since it's possible that the
-        selected YouTube video may have received views since it was stored to the database,
-        each item is rechedked for views are possibly discarded. In such case a new
+        selected YouTube video may have received views since it was INSERTED into to the database,
+        each item is rechecked for views and possibly discarded. In such case a new
         link is picked.
-        TODO: check for empty link storage
+        An IndexEmptyException is raised (by fetch_link) if all links are discarded.
         """
         views = 1
         while views:
@@ -228,13 +239,15 @@ class IndexEmptyException(Exception):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Search for and tweet Youtube videos with no or little views.")
+        description="Tweets links to YouTube videos with no views.")
     parser.add_argument(
-        "--tweet", help="Tweet the next result stored in links.json.", action="store_true")
+        "--tweet", help="Tweet the next result stored in the database", action="store_true")
     parser.add_argument(
-        "--parse", help="Parse n next search terms from search_terms.json for zero view items and store them to links.json.", metavar="n", type=int)
+        "--parse", help="Choose n random search terms from the database and parse for zero view videos. Stores valid links to the database.", metavar="n", type=int)
     parser.add_argument(
-        "--stats", help="Prints number of items left in links.json and index.json", action="store_true")
+        "--parse-if-low", help="Parse new links if less than threshold links left in the database", nargs=2, metavar=("n", "threshold"), type=int)
+    parser.add_argument(
+        "--stats", help="Displays the number of links and search terms left in the database.", action="store_true")
     parser.add_argument(
         "--init", help="Initialize the bot by creating a file structure in bot-data/", action="store_true")
     args = parser.parse_args()
@@ -256,7 +269,15 @@ if __name__ == "__main__":
         logger.info("Parsing new links")
         bot.parse_new_links(args.parse)
 
+    elif args.parse_if_low:
+        logger.info("Parsing new links")
+        links_left = bot.storage_writer.get_status()["links"]
+        if links_left >= args.parse_if_low[1]:
+            print("{} links left in the database, no parsing done")
+        else:
+            bot.parse_new_links(args.parse_if_low[0])
+
     elif args.stats:
         status = bot.storage_writer.get_status()
-        print("{} links in links.json and {} search terms in index.json".format(
+        print("{} links in and {} search terms left in the database".format(
             status["links"], status["index_size"]))
