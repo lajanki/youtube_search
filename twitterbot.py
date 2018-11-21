@@ -248,7 +248,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--parse-if-low", help="Parse new links if less than threshold links left in the database", nargs=2, metavar=("n", "threshold"), type=int)
     parser.add_argument(
-        "--stats", help="Displays the number of links and search terms left in the database.", action="store_true")
+        "--stats", help="Display the number of links and search terms left in the database.", action="store_true")
     parser.add_argument(
         "--init", help="Initialize the bot by creating a file structure in bot-data/", action="store_true")
     args = parser.parse_args()

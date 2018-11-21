@@ -1,57 +1,75 @@
 # youtube_search
-A script for finding YouTube videos with no views.
+A twitterbot tweeting links to YouTube videos with no views.
 
 The Google YouTube Data API comes with certain restrictions that prevents from directly searching for content with no views. Namely:
-  1. view count is not a valid search parameter, and
-  2. any search query will return at most 500 results.
+ 1. view count is not a valid search parameter, and
+ 2. any search query will return at most 500 results.
 
 This script uses a brute force type approach by performing a search on a
-bunch of search terms and stores the results with zero views to an sqlite database.
+number of search terms and stores the results with zero views to an sqlite database.
 
-The search terms are read from two source files:
-  * dict.txt, containing > 71 000 individual words. Words read here are processed in groups of n files at a time.
-  * common.txt, containing > 20 000 common English words. This file is used to generate additional random k-word search terms.
+This prints the detected zero view items. The fraction of videos with no views from all query responses is usually small. It is recommended to choose a large search term batch size when running the script.
 
-There are two ways to run this script:
-  * ```main.py``` for listing the results on stdout. This is mainly for demonstration purposes. Requires Google API key, see below
-  * ```twitterbot.py``` poviding the option to tweet detected zero view items. Requires Google and Twitter API keys.
-
+The search terms are read from a text file containing common English language words.
+To limit the possibility of the same search term returning the same results on a subsequent search, a random time frame
+is generated for each API query.
 
 ## Requirements
-##### Modules
-* Google APIs Client Library:
-  https://developers.google.com/api-client-library/python/start/installation
-* Twython:
-https://twython.readthedocs.org/en/latest/
+Install a virtualenv and Python dependencies with
+```
+python3 -m virtualenv env
+source env/bin/activate
+pip install -r requirements.txt
+```
 
-##### Keys:
- * Google API Key:
-https://developers.google.com/api-client-library/python/guide/aaa_apikeys
- * Additionally the bot feature requires access tokens and keys from Twitter
- https://dev.twitter.com/oauth/overview/application-owner-access-tokens
-Both keys should be stored in ```keys.json```.
+To run the script you need API keys for Google and, for the bot, Twitter:
+ * https://developers.google.com/api-client-library/python/guide/aaa_apikeys
+   * Choose to create an `API key` and not a `service account key`
+ *  https://dev.twitter.com/oauth/overview/application-owner-access-tokens
+Copy all keys to their appropriate places in `keys.json`.
 
+Optionally, run unit tests with
+```
+python -m unittest tests/*.py
+```
 
 ## Usage
-Run
+To perform a sample search using a random batch of `n` search terms from `common.txt` run
 ```
-python main.py --search n
+python run_search.py n
 ```
-to perform a sample search on n random search terms. Any detected zero view videos are listed on screen.
-Due to the restrictions listed above you may find that you need to do the parsing with values n>100 to find any valid results.
+A value of `n > 40` is recommended.
 
-Similarly,  to use the bot, first initialize it with
+To run the bot, first initialize it with
 ```
 python twitterbot.py --init
 ```
-This creates a database with an index of search terms and a table for zero view links. To parse for zero view items, run
+This creates a database for storing search terms and links to zero view videos. Next, parse for zero view videos with
 ```
 python twitterbot.py --parse n
 ```
-This takes n/2 random words from the index, generates another n/2 from ```common.txt``` and performs a search. Valid links are stored to the database.
+This uses `n` random search terms from the database and stores valid results.
 
-To tweet a randomly chosen link from the database, run
+Finally tweet an item from the database with
 ```
 python twitterbot.py --tweet
 ```
-Before tweeting the link, an additional check takes palce to ensure the video hasn't gained any views since it was inserted into the database.
+
+The full interface to the bot is
+```
+Tweets links to YouTube videos with no views.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --tweet               Tweet the next result stored in the database
+  --parse n             Choose n random search terms from the database and
+                        parse for zero view videos. Stores valid links to the
+                        database.
+  --parse-if-low n threshold
+                        Parse new links if less than threshold links left in
+                        the database
+  --stats               Displays the number of links and search terms left in
+                        the database.
+  --init                Initialize the bot by creating a file structure in
+                        bot-data/
+```

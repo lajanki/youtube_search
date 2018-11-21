@@ -17,6 +17,25 @@ number of search terms and keeps track of the results with zero views.
 The search terms are read from a text file containing common English language
 words. To prevent the same search term from returning the same results, a random timeframe
 is generated for each API query.
+
+Possible improvement tasks:
+Given that the YouTube query is meant to be done with a number of search terms,
+this script performs a lot of API requests:
+ 1  The API uses a pagination system where the results of a single search
+    is fetched in pages during several requests.
+
+ 2  Viewcount is not among the results returned by the search().list() endpoint and
+    has to be fetched separately. Though, it is not necessary to request the viewcount
+    for every item.
+
+3   Finally, the bot rechecks the viewcount upon tweeting to get an updates status
+    (though this may be unnecessary as it's unlikely an old video will receive views?).
+
+Google's API client library supports batching requests:
+https://developers.google.com/api-client-library/python/guide/batch
+See if this can be used to reduce overhead.
+
+
 """
 
 import json
