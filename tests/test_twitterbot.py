@@ -16,6 +16,7 @@ class BotTestCase(unittest.TestCase):
     @patch("twitterbot.Bot.create_client")
     @patch("twitterbot.StorageWriter")
     def setUp(self, mock_storage_writer, mock_create_client, mock_video_crawler):
+        """Create a Bot instance and replace all its accessors with mocks."""
         self.bot = twitterbot.Bot("foo")
 
     def test_create_client_raises_error_on_missing_key(self):
@@ -45,6 +46,19 @@ class BotTestCase(unittest.TestCase):
         links = [(item.url, item.publish_date, item.title, item.views)
                  for item in [res1, res2]]
         self.bot.storage_writer.insert_links.assert_called_with(links)
+
+    def test_get_link_rejects_upon_recheck(self):
+        """Does get_link ignore links which are determined to have views upon recheck?"""
+        link1 = youtube_search.VideoResult(
+            title="Title", url="https://www.youtube.com/watch?v=id", views=0, publish_date="Nov 7, 2018")
+        link2 = youtube_search.VideoResult(
+            title="Title2", url="https://www.youtube.com/watch?v=id2", views=0, publish_date="Oct 2, 2016")
+        # mock link storage to have 2 links
+        self.bot.storage_writer.fetch_link.side_effect = [link1, link2]
+        self.bot.crawler.get_views.side_effect = [1, 0]
+
+        res = self.bot.get_link()
+        self.assertEqual(str(res), str(link2))
 
 
 class StorageWriterTestCase(unittest.TestCase):

@@ -153,6 +153,28 @@ class VideoCrawlerTestCase(unittest.TestCase):
         zero_views = self.crawler.parse_response(self.search_response)
         self.assertEqual(len(zero_views), 2)
 
+    def test_channel_filter_removes_extra_link(self):
+        """Does filter_channel_links drop videos from the same channel if count is
+        higher than the threshold?
+        """
+        link1 = youtube_search.VideoResult(
+            title="Title", url="https://www.youtube.com/watch?v=id", views=0, channel="foo", publish_date="Nov 7, 2018")
+        link2 = youtube_search.VideoResult(
+            title="Title2", url="https://www.youtube.com/watch?v=id2", views=0, channel="foo", publish_date="Oct 2, 2016")
+        link3 = youtube_search.VideoResult(
+            title="Title3", url="https://www.youtube.com/watch?v=id3", views=0, channel="foo", publish_date="Oct 2, 2016")
+        link4 = youtube_search.VideoResult(
+            title="Title4", url="https://www.youtube.com/watch?v=id4", views=0, channel="bar", publish_date="Oct 2, 2016")
+
+        links = [link1, link2, link3, link4]
+        filtered = youtube_search.VideoCrawler.filter_channel_links(links, 2)
+        channels_foos = [link for link in filtered if link.channel == "foo"]
+        channels_bars = [link for link in filtered if link.channel == "bar"]
+
+        self.assertEqual(len(filtered), 3)
+        self.assertEqual(len(channels_foos), 2)
+        self.assertEqual(len(channels_bars), 1)
+
     def test_search_parameter_formatting_without_date(self):
         """Does format_search_params return the expected data when called with the default
         value of None as the before date?
