@@ -34,13 +34,17 @@ class BotTestCase(unittest.TestCase):
 
         self.bot.storage_writer.refresh_index.assert_called()
 
-    def test_parse_new_links_inserts_links_into_database(self):
+    @patch("youtube_search.VideoCrawler.filter_channel_links")
+    def test_parse_new_links_inserts_links_into_database(self, mock_filter):
         """Does parse_new_links insert the detected links to the links table?"""
         res1 = youtube_search.VideoResult(
             title="Title", url="https://www.youtube.com/watch?v=id", views=0, publish_date="Nov 7, 2018")
         res2 = youtube_search.VideoResult(
             title="Title2", url="https://www.youtube.com/watch?v=id2", views=0, publish_date="Oct 2, 2016")
         self.bot.crawler.zero_search.return_value = [res1, res2]
+        # The order of the two mocked VideoResults may change in filter_channel_links, thus failing the test.
+        # This call is mocked to keep the order fixed.
+        mock_filter.return_value = [res1, res2]
 
         self.bot.parse_new_links(1)
         links = [(item.url, item.publish_date, item.title, item.views)
