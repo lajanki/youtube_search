@@ -127,13 +127,17 @@ class Bot(object):
             if len(title) > 75:
                 title = link.title[:72] + "..."
 
+            # publish_date is in ISO 8601 (YYYY-MM-DDThh:mm:ss.sZ) format, strip
+            # to date only
+            publish_date = link.publish_date[:10]
+
             msg = "{}\n{}\nuploaded: {}".format(
-                title, link.url, link.publish_date)
+                title, link.url, publish_date)
 
             # Encode the message for network I/O
-            msg = msg.encode("utf8")
+            encoded = msg.encode("utf8")
             logger.info(msg)
-            self.twitter_client.update_status(status=msg)
+            self.twitter_client.update_status(status=encoded)
             print(msg)
 
         except IndexEmptyException as err:
