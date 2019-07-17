@@ -25,7 +25,8 @@ import logging
 import sqlite3
 import codecs
 
-import youtube_search
+from src import youtube_search
+from src import utils
 
 
 logging.basicConfig(
@@ -40,14 +41,15 @@ logging.getLogger("googleapiclient").setLevel(logging.ERROR)
 
 
 class Bot(object):
-    def __init__(self, path):
+
+    def __init__(self, path_to_storage):
         self.crawler = youtube_search.VideoCrawler()
         self.twitter_client = Bot.create_client()
-        self.storage_writer = StorageWriter(path)
+        self.storage_writer = StorageWriter(path_to_storage)
 
     @staticmethod
     def create_client():
-        with open("./keys.json") as f:
+        with open(utils.keyfile) as f:
             keys = json.load(f)
 
         try:
@@ -171,7 +173,7 @@ class StorageWriter(object):
 
     def refresh_index(self):
         """Fill the search term index from common.txt. Drops previous data."""
-        with codecs.open("./common.txt", encoding="utf-8") as f:
+        with codecs.open(utils.common_word_list, encoding="utf-8") as f:
             search_terms = f.read().splitlines()
             # format as list of tuples to be able to pass to executemany
             search_terms = [(item,) for item in search_terms]
@@ -242,47 +244,4 @@ class IndexEmptyException(Exception):
     pass
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Tweets links to YouTube videos with no views.")
-    parser.add_argument(
-        "--tweet", help="Tweet the next result stored in the database", action="store_true")
-    parser.add_argument(
-        "--parse", help="Choose n random search terms from the database and parse for zero view videos. Stores valid links to the database.", metavar="n", type=int)
-    parser.add_argument(
-        "--parse-if-low", help="Parse new links if less than threshold links left in the database", nargs=2, metavar=("n", "threshold"), type=int)
-    parser.add_argument(
-        "--stats", help="Display the number of links and search terms left in the database.", action="store_true")
-    parser.add_argument(
-        "--init", help="Initialize the bot by creating a file structure in bot-data/", action="store_true")
-    args = parser.parse_args()
 
-    # create a bot-data directory if it doesn't exist
-    base = "bot-data"
-    if not os.path.isdir(base):
-        os.mkdir(base)
-    path = os.path.join(base, "links.db")
-    bot = Bot(path)
-
-    if args.init:
-        bot.setup()
-
-    elif args.tweet:
-        bot.tweet()
-
-    elif args.parse:
-        logger.info("Parsing new links.")
-        bot.parse_new_links(args.parse)
-
-    elif args.parse_if_low:
-        logger.info("Parsing new links.")
-        links_left = bot.storage_writer.get_status()["links"]
-        if links_left >= args.parse_if_low[1]:
-            print("{} links left in the database, no parsing done.".format(links_left))
-        else:
-            bot.parse_new_links(args.parse_if_low[0])
-
-    elif args.stats:
-        status = bot.storage_writer.get_status()
-        print("{} links in and {} search terms left in the database.".format(
-            status["links"], status["index_size"]))

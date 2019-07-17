@@ -15,21 +15,9 @@ This script uses a brute force type approach by performing the search to a
 number of search terms and keeps track of the results with zero views.
 
 The search terms are read from a text file containing common English language
-words. To prevent the same search term from returning the same results, a random timeframe
+words (common.txt). To help prevent the same search term from returning the same results, a random timeframe
 is generated for each API query.
 
-Possible improvement tasks:
-Given that the YouTube query is meant to be done with a number of search terms,
-this script performs a lot of API requests:
- 1  The API uses a pagination system where the results of a single search
-    is fetched in pages during several requests.
-
- 2  Viewcount is not among the results returned by the search().list() endpoint and
-    has to be fetched separately. Though, it is not necessary to request the viewcount
-    for every item.
-
-3   Finally, the bot rechecks the viewcount upon tweeting to get an updates status
-    (though this may be unnecessary as it's unlikely an old video will receive views?).
 
 Google's API client library supports batching requests:
 https://developers.google.com/api-client-library/python/guide/batch
@@ -44,6 +32,8 @@ import datetime
 import tqdm
 
 from apiclient.discovery import build
+
+from src import utils
 
 
 class VideoCrawler(object):
@@ -83,7 +73,7 @@ class VideoCrawler(object):
         # need total steps for bar to update when used with a generator
         for search_term in tqdm.tqdm(search_terms, total=self.n):
             # print the search term and a return carriage without a newline
-            tqdm.tqdm.write(search_term, end="\r"),
+            tqdm.tqdm.write(search_term, end="\r")
 
             query_params = self.format_search_params(search_term)
             response = self.query_youtube(**query_params)
@@ -195,7 +185,7 @@ class VideoCrawler(object):
         Return:
           a list of search terms
         """
-        with open("./common.txt") as f:
+        with open(utils.common_word_list) as f:
             lines = [line.rstrip("\n") for line in f]
 
         sample = random.sample(lines, n)
@@ -211,12 +201,11 @@ class VideoCrawler(object):
         Return:
           a dict of {q, before, after}
         """
-        # if a date argument was provided, generate a starting point from year earlier
-        # TODO input validation
+        # if a date argument for 'before' was provided, generate a starting point from year earlier
         if before:
             after = self.compute_earlier_date(before, 180)
 
-        # generate a timewindow
+        # generate a full timewindow
         else:
             before = self.choose_random_date()
             after = self.compute_earlier_date(before, 180)
@@ -291,15 +280,12 @@ class VideoCrawler(object):
     @staticmethod
     def create_client():
         """Create a youtube client."""
-        with open("./keys.json") as f:
+        with open(utils.keyfile) as f:
             data = json.load(f)
 
         try:
             GOOGLE_API_KEY = data["GOOGLE_API_KEY"]
-            YOUTUBE_API_SERVICE_NAME = "youtube"
-            YOUTUBE_API_VERSION = "v3"
-            client = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
-                           developerKey=GOOGLE_API_KEY)
+            client = build("youtube", "v3", developerKey=GOOGLE_API_KEY)
         except KeyError:
             raise KeyError("Missing Google API key in keys.json")
 

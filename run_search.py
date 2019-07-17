@@ -8,7 +8,7 @@ search terms from dict.txt and prints a list of items with no views.
 
 import argparse
 
-import youtube_search
+from src import youtube_search
 
 
 if __name__ == "__main__":

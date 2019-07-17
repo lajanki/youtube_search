@@ -7,13 +7,13 @@ import unittest
 import json
 from unittest.mock import patch, mock_open
 
-import youtube_search
+from src import youtube_search
 
 
 class VideoCrawlerTestCase(unittest.TestCase):
     """Test cases for searching zero view videos."""
 
-    @patch("youtube_search.VideoCrawler.create_client")
+    @patch("src.youtube_search.VideoCrawler.create_client")
     def setUp(self, mock_create_client):
         self.crawler = youtube_search.VideoCrawler()
         self.search_response_json_string = """{
@@ -136,7 +136,7 @@ class VideoCrawlerTestCase(unittest.TestCase):
         with patch('builtins.open', mock_open(read_data=empty_keys), create=True):
             self.assertRaises(KeyError, youtube_search.VideoCrawler.create_client)
 
-    @patch("youtube_search.VideoCrawler.get_views")
+    @patch("src.youtube_search.VideoCrawler.get_views")
     def test_parse_response_skips_item_with_views(self, mock_get_views):
         """Does parse_response skip items with > 0 views detected?"""
         mock_get_views.side_effect = [False, False, True]  # mark the last item as having > 0 views
@@ -144,7 +144,7 @@ class VideoCrawlerTestCase(unittest.TestCase):
         zero_views = self.crawler.parse_response(self.search_response)
         self.assertEqual(len(zero_views), 2)
 
-    @patch("youtube_search.VideoCrawler.get_views")
+    @patch("src.youtube_search.VideoCrawler.get_views")
     def test_parse_response_skips_live_broadcast_items(self, mock_get_views):
         """Does parse_response skip items with a liveBroadcastContent status?"""
         mock_get_views.side_effect = [False, False, False]

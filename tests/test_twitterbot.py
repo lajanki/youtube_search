@@ -6,15 +6,15 @@ import json
 import unittest
 from unittest.mock import patch, mock_open
 
-import youtube_search
-import twitterbot
+from src import youtube_search
+from src import twitterbot
 
 
 class BotTestCase(unittest.TestCase):
 
-    @patch("youtube_search.VideoCrawler")
-    @patch("twitterbot.Bot.create_client")
-    @patch("twitterbot.StorageWriter")
+    @patch("src.youtube_search.VideoCrawler")
+    @patch("src.twitterbot.Bot.create_client")
+    @patch("src.twitterbot.StorageWriter")
     def setUp(self, mock_storage_writer, mock_create_client, mock_video_crawler):
         """Create a Bot instance and replace all its accessors with mocks."""
         self.bot = twitterbot.Bot("foo")
@@ -34,7 +34,7 @@ class BotTestCase(unittest.TestCase):
 
         self.bot.storage_writer.refresh_index.assert_called()
 
-    @patch("youtube_search.VideoCrawler.filter_channel_links")
+    @patch("src.youtube_search.VideoCrawler.filter_channel_links")
     def test_parse_new_links_inserts_links_into_database(self, mock_filter):
         """Does parse_new_links insert the detected links to the links table?"""
         res1 = youtube_search.VideoResult(
@@ -67,7 +67,7 @@ class BotTestCase(unittest.TestCase):
 
 class StorageWriterTestCase(unittest.TestCase):
 
-    @patch("twitterbot.sqlite3.connect")
+    @patch("src.twitterbot.sqlite3.connect")
     def setUp(self, mock_connect):
         self.storage_writer = twitterbot.StorageWriter("foo")
 
